@@ -685,8 +685,8 @@ class MyModel(AIxBlockMLBase):
                         'to_name': "text_output",
                         'type': 'textarea',
                         'value': {
-                            'text': [img_base64],
-                            "generated_url": generated_url
+                            'text': [generated_url],
+                            "img_base64": img_base64
                         }
                     }],
                     'model_version': ""
