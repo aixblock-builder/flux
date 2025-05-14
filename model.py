@@ -623,6 +623,8 @@ class MyModel(AIxBlockMLBase):
                 guidance_scale = kwargs.get("guidance_scale", 2)
                 format = kwargs.get("format", "JPEG")
 
+                predictions = []
+
                 if prompt == "" or prompt is None:
                     return None, ""
 
@@ -675,7 +677,22 @@ class MyModel(AIxBlockMLBase):
                     },
                 }
 
-                return {"message": "predict completed successfully", "result": result}
+                logger.info(result)
+
+                predictions.append({
+                    'result': [{
+                        'from_name': "generated_text",
+                        'to_name': "text_output",
+                        'type': 'textarea',
+                        'value': {
+                            'text': [img_base64],
+                            "generated_url": generated_url
+                        }
+                    }],
+                    'model_version': ""
+                })
+
+                return {"message": "predict completed successfully", "result": predictions}
 
             except Exception as e:
                 print(e)
