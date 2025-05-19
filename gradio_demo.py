@@ -392,7 +392,6 @@ def control_only_gr(
         width=width,
         num_inference_steps=num_inference_steps,
         guidance_scale=guidance_scale,
-        strength=strength,
         generator=generator,
     ).images[0]
     return image
