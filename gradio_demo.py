@@ -3,7 +3,7 @@ import gc
 import gradio as gr
 import numpy as np
 import torch
-from diffusers import FluxControlPipeline, FluxPipeline
+from diffusers import FluxControlNetImg2ImgPipeline, FluxPipeline, FluxControlNetModel
 from diffusers.utils import load_image
 from PIL import Image
 
@@ -63,8 +63,13 @@ def load_model(
             gr.update(visible=False),
         )
     elif mode == "Image to Image (Depth Control)":
-        pipe = FluxControlPipeline.from_pretrained(
-            "black-forest-labs/FLUX.1-Depth-dev",
+        controlnet = FluxControlNetModel.from_pretrained(
+            "InstantX/FLUX.1-dev-Controlnet-Canny-alpha", 
+            torch_dtype=torch.bfloat16,
+        )
+        pipe = FluxControlNetImg2ImgPipeline.from_pretrained(
+            "black-forest-labs/FLUX.1-dev",
+            controlnet=controlnet,
             torch_dtype=torch.bfloat16,
             device_map="balanced",
         )
@@ -154,6 +159,7 @@ def image_to_image_gr(
     model_state,
     preproc_state,
     init_image,
+    control_image,
     prompt,
     guidance_scale,
     height,
@@ -165,52 +171,70 @@ def image_to_image_gr(
 ):
     if model_state is None:
         return None
+        
+    # Process init_image
+    if isinstance(init_image, np.ndarray):
+        init_img = Image.fromarray(init_image.astype("uint8"))
+    elif isinstance(init_image, Image.Image):
+        init_img = init_image
+    elif isinstance(init_image, str):
+        init_img = load_image(init_image)
+    else:
+        raise ValueError("init_image must be a numpy array, PIL.Image, or string")
+    
+    # Ensure init_image is RGB
+    if hasattr(init_img, "mode") and init_img.mode != "RGB":
+        init_img = init_img.convert("RGB")
+        
+    # Process control_image (depth or canny)
+    if isinstance(control_image, np.ndarray):
+        ctrl_img = Image.fromarray(control_image.astype("uint8"))
+    elif isinstance(control_image, Image.Image):
+        ctrl_img = control_image
+    elif isinstance(control_image, str):
+        ctrl_img = load_image(control_image)
+    else:
+        raise ValueError("control_image must be a numpy array, PIL.Image, or string")
+        
+    # Ensure control_image is RGB
+    if hasattr(ctrl_img, "mode") and ctrl_img.mode != "RGB":
+        ctrl_img = ctrl_img.convert("RGB")
+        
+    # Apply depth processor if available
     if preproc_state is not None:
-        # Always process depth
-        # According to context7, gr.Image returns numpy array (uint8, HWC) or PIL.Image or string
-        if isinstance(init_image, np.ndarray):
-            control_image = Image.fromarray(init_image.astype("uint8"))
-        elif isinstance(init_image, Image.Image):
-            control_image = init_image
-        elif isinstance(init_image, str):
-            control_image = load_image(init_image)
-        else:
-            raise ValueError("init_image must be a numpy array, PIL.Image, or string")
-        # Ensure control_image is RGB
-        if hasattr(control_image, "mode") and control_image.mode != "RGB":
-            control_image = control_image.convert("RGB")
-        control_image = preproc_state(control_image)[0]
-
+        ctrl_img = preproc_state(ctrl_img)[0]
+        
         # Ensure control_image is always RGB 3 channel
-        if isinstance(control_image, np.ndarray):
-            if control_image.ndim == 2:  # grayscale
-                control_image = np.stack([control_image] * 3, axis=-1)
-            elif control_image.shape[-1] == 1:
-                control_image = np.repeat(control_image, 3, axis=-1)
-            control_image = Image.fromarray(control_image.astype(np.uint8))
-        elif "torch" in str(type(control_image)):
-            arr = control_image.cpu().numpy()
+        if isinstance(ctrl_img, np.ndarray):
+            if ctrl_img.ndim == 2:  # grayscale
+                ctrl_img = np.stack([ctrl_img] * 3, axis=-1)
+            elif ctrl_img.shape[-1] == 1:
+                ctrl_img = np.repeat(ctrl_img, 3, axis=-1)
+            ctrl_img = Image.fromarray(ctrl_img.astype(np.uint8))
+        elif "torch" in str(type(ctrl_img)):
+            arr = ctrl_img.cpu().numpy()
             if arr.ndim == 2:
                 arr = np.stack([arr] * 3, axis=-1)
             elif arr.shape[0] == 1:
                 arr = np.repeat(arr, 3, axis=0)
             arr = np.moveaxis(arr, 0, -1)  # CHW -> HWC
-            control_image = Image.fromarray(arr.astype(np.uint8))
-        if hasattr(control_image, "mode") and control_image.mode != "RGB":
-            control_image = control_image.convert("RGB")
-        generator = torch.Generator().manual_seed(seed) if seed is not None else None
-        image = model_state(
-            prompt=prompt,
-            control_image=control_image,
-            height=height,
-            width=width,
-            num_inference_steps=num_inference_steps,
-            guidance_scale=guidance_scale,
-            generator=generator,
-        ).images[0]
-        return image
-    else:
-        return Image.new("RGB", (width, height), color="gray")
+            ctrl_img = Image.fromarray(arr.astype(np.uint8))
+        if hasattr(ctrl_img, "mode") and ctrl_img.mode != "RGB":
+            ctrl_img = ctrl_img.convert("RGB")
+            
+    generator = torch.Generator().manual_seed(seed) if seed is not None else None
+    image = model_state(
+        prompt=prompt,
+        image=init_img,
+        control_image=ctrl_img,
+        height=height,
+        width=width,
+        num_inference_steps=num_inference_steps,
+        guidance_scale=guidance_scale,
+        strength=strength,
+        generator=generator,
+    ).images[0]
+    return image
 
 
 def image_to_image_ip_adapter_gr(
@@ -367,9 +391,17 @@ with gr.Blocks(css=demo_css) as demo:
         img_out = gr.Image(label="Output Image")
 
     with gr.Column(visible=False) as img2img_col:
-        init_img = gr.Image(
-            label="Input Image",
-        )
+        with gr.Row():
+            with gr.Column(scale=1):
+                init_img = gr.Image(
+                    label="Input Image",
+                    info="The base image to transform",
+                )
+            with gr.Column(scale=1):
+                control_img = gr.Image(
+                    label="Control Image",
+                    info="The control image (depth/canny) to guide generation",
+                )
         prompt2 = gr.Textbox(
             label="Prompt",
             value="",
@@ -665,6 +697,7 @@ with gr.Blocks(css=demo_css) as demo:
             model_state,
             preproc_state,
             init_img,
+            control_img,
             prompt2,
             guidance_scale2,
             height2,
