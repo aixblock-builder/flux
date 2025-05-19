@@ -775,7 +775,14 @@ class MyModel(AIxBlockMLBase):
                     image_input = load_image(image)
                 if prompt == "" or prompt is None:
                     return None, ""
-
+                
+                logger.info(f"task: {task}")
+                logger.info(f"load_lora: {load_lora}")
+                logger.info(f"lora_model_name: {lora_model_name}")
+                logger.info(f"lora_weight_name: {lora_weight_name}")
+                logger.info(f"model_id: {model_id}")
+                logger.info(f"ip_adapter_name: {ip_adapter_name}")
+                
                 pipe = unload_and_load_model(
                     task=task,
                     load_lora=load_lora,
