@@ -46,13 +46,15 @@ def load_model(
     if mode == "Text to Image":
         pipe = FluxPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev",
-            torch_dtype=torch.float16,
-            variant="fp16",
+            torch_dtype=torch.bfloat16,
         )
         
-        # Enable memory efficient attention and CPU offloading
-        pipe.enable_model_cpu_offload()
-        pipe.enable_attention_slicing(slice_size="auto")
+        # Move all components to the same device
+        if torch.cuda.is_available():
+            pipe = pipe.to("cuda")
+        else:
+            # If CUDA not available, use CPU with consistent dtype
+            pipe = pipe.to("cpu")
             
         if load_lora:
             pipe.load_lora_weights(
@@ -69,22 +71,22 @@ def load_model(
             gr.update(visible=False),
         )
     elif mode == "Image to Image (Depth Control)":
-        # Load models with memory optimization
         controlnet = FluxControlNetModel.from_pretrained(
             "InstantX/FLUX.1-dev-Controlnet-Canny-alpha", 
-            torch_dtype=torch.float16,
-            variant="fp16",
+            torch_dtype=torch.bfloat16,
         )
         pipe = FluxControlNetImg2ImgPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev",
             controlnet=controlnet,
-            torch_dtype=torch.float16,
-            variant="fp16",
+            torch_dtype=torch.bfloat16,
         )
         
-        # Enable memory optimizations
-        pipe.enable_model_cpu_offload()
-        pipe.enable_attention_slicing(slice_size="auto")
+        # Move all components to the same device
+        if torch.cuda.is_available():
+            pipe = pipe.to("cuda")
+        else:
+            # If CUDA not available, use CPU with consistent dtype
+            pipe = pipe.to("cpu")
             
         if HAS_DEPTH:
             processor = DepthPreprocessor.from_pretrained(
@@ -109,13 +111,15 @@ def load_model(
     elif mode == "Image to Image (IP Adapter)":
         pipe = FluxPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev",
-            torch_dtype=torch.float16,
-            variant="fp16",
+            torch_dtype=torch.bfloat16,
         )
         
-        # Enable memory optimizations
-        pipe.enable_model_cpu_offload()
-        pipe.enable_attention_slicing(slice_size="auto")
+        # Move all components to the same device
+        if torch.cuda.is_available():
+            pipe = pipe.to("cuda")
+        else:
+            # If CUDA not available, use CPU with consistent dtype
+            pipe = pipe.to("cpu")
             
         if load_lora:
             pipe.load_lora_weights(
@@ -158,34 +162,15 @@ def text_to_image_gr(
 ):
     if model_state is None:
         return None
-    
-    # Use torch.cuda.empty_cache() to free up memory before generation
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        
-    try:
-        out = model_state(
-            prompt=prompt,
-            guidance_scale=guidance_scale,
-            height=height,
-            width=width,
-            num_inference_steps=num_inference_steps,
-            max_sequence_length=max_sequence_length,
-        ).images[0]
-        
-        # Free up memory after generation
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            
-        return out
-    except Exception as e:
-        print(f"Error during text-to-image generation: {e}")
-        # Free up memory
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        return None
+    out = model_state(
+        prompt=prompt,
+        guidance_scale=guidance_scale,
+        height=height,
+        width=width,
+        num_inference_steps=num_inference_steps,
+        max_sequence_length=max_sequence_length,
+    ).images[0]
+    return out
 
 
 def image_to_image_gr(
@@ -204,103 +189,70 @@ def image_to_image_gr(
 ):
     if model_state is None:
         return None
+        
+    # Process init_image
+    if isinstance(init_image, np.ndarray):
+        init_img = Image.fromarray(init_image.astype("uint8"))
+    elif isinstance(init_image, Image.Image):
+        init_img = init_image
+    elif isinstance(init_image, str):
+        init_img = load_image(init_image)
+    else:
+        raise ValueError("init_image must be a numpy array, PIL.Image, or string")
     
-    # Free up memory before processing    
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    # Ensure init_image is RGB
+    if hasattr(init_img, "mode") and init_img.mode != "RGB":
+        init_img = init_img.convert("RGB")
         
-    try:
-        # Process init_image
-        if isinstance(init_image, np.ndarray):
-            init_img = Image.fromarray(init_image.astype("uint8"))
-        elif isinstance(init_image, Image.Image):
-            init_img = init_image
-        elif isinstance(init_image, str):
-            init_img = load_image(init_image)
-        else:
-            raise ValueError("init_image must be a numpy array, PIL.Image, or string")
+    # Process control_image (depth or canny)
+    if isinstance(control_image, np.ndarray):
+        ctrl_img = Image.fromarray(control_image.astype("uint8"))
+    elif isinstance(control_image, Image.Image):
+        ctrl_img = control_image
+    elif isinstance(control_image, str):
+        ctrl_img = load_image(control_image)
+    else:
+        raise ValueError("control_image must be a numpy array, PIL.Image, or string")
         
-        # Ensure init_image is RGB
-        if hasattr(init_img, "mode") and init_img.mode != "RGB":
-            init_img = init_img.convert("RGB")
-            
-        # Process control_image (depth or canny)
-        if isinstance(control_image, np.ndarray):
-            ctrl_img = Image.fromarray(control_image.astype("uint8"))
-        elif isinstance(control_image, Image.Image):
-            ctrl_img = control_image
-        elif isinstance(control_image, str):
-            ctrl_img = load_image(control_image)
-        else:
-            raise ValueError("control_image must be a numpy array, PIL.Image, or string")
-            
-        # Ensure control_image is RGB
+    # Ensure control_image is RGB
+    if hasattr(ctrl_img, "mode") and ctrl_img.mode != "RGB":
+        ctrl_img = ctrl_img.convert("RGB")
+        
+    # Apply depth processor if available
+    if preproc_state is not None:
+        ctrl_img = preproc_state(ctrl_img)[0]
+        
+        # Ensure control_image is always RGB 3 channel
+        if isinstance(ctrl_img, np.ndarray):
+            if ctrl_img.ndim == 2:  # grayscale
+                ctrl_img = np.stack([ctrl_img] * 3, axis=-1)
+            elif ctrl_img.shape[-1] == 1:
+                ctrl_img = np.repeat(ctrl_img, 3, axis=-1)
+            ctrl_img = Image.fromarray(ctrl_img.astype(np.uint8))
+        elif "torch" in str(type(ctrl_img)):
+            arr = ctrl_img.cpu().numpy()
+            if arr.ndim == 2:
+                arr = np.stack([arr] * 3, axis=-1)
+            elif arr.shape[0] == 1:
+                arr = np.repeat(arr, 3, axis=0)
+            arr = np.moveaxis(arr, 0, -1)  # CHW -> HWC
+            ctrl_img = Image.fromarray(arr.astype(np.uint8))
         if hasattr(ctrl_img, "mode") and ctrl_img.mode != "RGB":
             ctrl_img = ctrl_img.convert("RGB")
             
-        # Apply depth processor if available
-        if preproc_state is not None:
-            ctrl_img = preproc_state(ctrl_img)[0]
-            
-            # Ensure control_image is always RGB 3 channel
-            if isinstance(ctrl_img, np.ndarray):
-                if ctrl_img.ndim == 2:  # grayscale
-                    ctrl_img = np.stack([ctrl_img] * 3, axis=-1)
-                elif ctrl_img.shape[-1] == 1:
-                    ctrl_img = np.repeat(ctrl_img, 3, axis=-1)
-                ctrl_img = Image.fromarray(ctrl_img.astype(np.uint8))
-            elif "torch" in str(type(ctrl_img)):
-                arr = ctrl_img.cpu().numpy()
-                if arr.ndim == 2:
-                    arr = np.stack([arr] * 3, axis=-1)
-                elif arr.shape[0] == 1:
-                    arr = np.repeat(arr, 3, axis=0)
-                arr = np.moveaxis(arr, 0, -1)  # CHW -> HWC
-                ctrl_img = Image.fromarray(arr.astype(np.uint8))
-            if hasattr(ctrl_img, "mode") and ctrl_img.mode != "RGB":
-                ctrl_img = ctrl_img.convert("RGB")
-                
-        generator = torch.Generator().manual_seed(seed) if seed is not None else None
-        
-        # Resize images if too large to save memory
-        max_size = 1024
-        if init_img.width > max_size or init_img.height > max_size:
-            ratio = min(max_size / init_img.width, max_size / init_img.height)
-            new_width = int(init_img.width * ratio)
-            new_height = int(init_img.height * ratio)
-            init_img = init_img.resize((new_width, new_height), Image.LANCZOS)
-            
-        if ctrl_img.width > max_size or ctrl_img.height > max_size:
-            ratio = min(max_size / ctrl_img.width, max_size / ctrl_img.height)
-            new_width = int(ctrl_img.width * ratio)
-            new_height = int(ctrl_img.height * ratio)
-            ctrl_img = ctrl_img.resize((new_width, new_height), Image.LANCZOS)
-        
-        image = model_state(
-            prompt=prompt,
-            image=init_img,
-            control_image=ctrl_img,
-            height=height,
-            width=width,
-            num_inference_steps=num_inference_steps,
-            guidance_scale=guidance_scale,
-            strength=strength,
-            generator=generator,
-        ).images[0]
-        
-        # Free up memory
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            
-        return image
-    except Exception as e:
-        print(f"Error during image-to-image generation: {e}")
-        # Free up memory
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        return None
+    generator = torch.Generator().manual_seed(seed) if seed is not None else None
+    image = model_state(
+        prompt=prompt,
+        image=init_img,
+        control_image=ctrl_img,
+        height=height,
+        width=width,
+        num_inference_steps=num_inference_steps,
+        guidance_scale=guidance_scale,
+        strength=strength,
+        generator=generator,
+    ).images[0]
+    return image
 
 
 def image_to_image_ip_adapter_gr(
@@ -315,63 +267,29 @@ def image_to_image_ip_adapter_gr(
 ):
     if model_state is None:
         return None
-        
-    # Free up memory before processing    
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        
-    try:
-        if isinstance(init_image, np.ndarray):
-            ip_adapter_image = Image.fromarray(init_image.astype("uint8"))
-        elif isinstance(init_image, Image.Image):
-            ip_adapter_image = init_image
-        elif isinstance(init_image, str):
-            ip_adapter_image = load_image(init_image)
-        else:
-            raise ValueError("init_image must be a numpy array, PIL.Image, or string")
+    if isinstance(init_image, np.ndarray):
+        ip_adapter_image = Image.fromarray(init_image.astype("uint8"))
+    elif isinstance(init_image, Image.Image):
+        ip_adapter_image = init_image
+    elif isinstance(init_image, str):
+        ip_adapter_image = load_image(init_image)
+    else:
+        raise ValueError("init_image must be a numpy array, PIL.Image, or string")
 
-        if hasattr(ip_adapter_image, "mode") and ip_adapter_image.mode != "RGB":
-            ip_adapter_image = ip_adapter_image.convert("RGB")
-            
-        # Resize image if too large to save memory
-        max_size = 1024
-        if ip_adapter_image.width > max_size or ip_adapter_image.height > max_size:
-            ratio = min(max_size / ip_adapter_image.width, max_size / ip_adapter_image.height)
-            new_width = int(ip_adapter_image.width * ratio)
-            new_height = int(ip_adapter_image.height * ratio)
-            ip_adapter_image = ip_adapter_image.resize((new_width, new_height), Image.LANCZOS)
+    if hasattr(ip_adapter_image, "mode") and ip_adapter_image.mode != "RGB":
+        ip_adapter_image = ip_adapter_image.convert("RGB")
 
-        generator = torch.Generator().manual_seed(seed) if seed is not None else None
-        
-        # Use lower resolution output to save memory
-        target_width = min(width, 768)
-        target_height = min(height, 768)
-        
-        image = model_state(
-            width=target_width,
-            height=target_height,
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            true_cfg_scale=guidance_scale,
-            generator=generator,
-            ip_adapter_image=ip_adapter_image,
-            num_inference_steps=20,  # Lower number of steps to save memory
-        ).images[0]
-        
-        # Free up memory
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            
-        return image
-        
-    except Exception as e:
-        print(f"Error during IP-Adapter generation: {e}")
-        # Free up memory
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        return None
+    generator = torch.Generator().manual_seed(seed) if seed is not None else None
+    image = model_state(
+        width=width,
+        height=height,
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        true_cfg_scale=guidance_scale,
+        generator=generator,
+        ip_adapter_image=ip_adapter_image,
+    ).images[0]
+    return image
 
 
 demo_css = """
@@ -385,12 +303,6 @@ demo_css = """
 
 with gr.Blocks(css=demo_css) as demo:
     gr.Markdown("# FLUX.1")
-    gr.Markdown(
-        """⚠️ **Memory Warning**: This demo requires significant GPU memory. If you encounter 'CUDA out of memory' errors:
-        - Use smaller image dimensions (512x512 or less)
-        - Set fewer inference steps
-        - Wait a moment between generations to allow memory to be released"""
-    )
     with gr.Row():
         with gr.Column(scale=1):
             mode = gr.Dropdown(
@@ -468,14 +380,14 @@ with gr.Blocks(css=demo_css) as demo:
             height = gr.Slider(
                 256,
                 1536,
-                value=512,
+                value=640,
                 step=8,
                 label="Height",
             )
             width = gr.Slider(
                 256,
                 2048,
-                value=512,
+                value=640,
                 step=8,
                 label="Width",
             )
@@ -522,14 +434,14 @@ with gr.Blocks(css=demo_css) as demo:
             height2 = gr.Slider(
                 256,
                 1536,
-                value=512,
+                value=640,
                 step=8,
                 label="Height",
             )
             width2 = gr.Slider(
                 256,
                 2048,
-                value=512,
+                value=640,
                 step=8,
                 label="Width",
             )
@@ -590,14 +502,14 @@ with gr.Blocks(css=demo_css) as demo:
             height_ip = gr.Slider(
                 256,
                 1536,
-                value=512,
+                value=640,
                 step=8,
                 label="Height",
             )
             width_ip = gr.Slider(
                 256,
                 2048,
-                value=512,
+                value=640,
                 step=8,
                 label="Width",
             )
