@@ -4,6 +4,7 @@ import gradio as gr
 import numpy as np
 import torch
 from diffusers import FluxControlNetImg2ImgPipeline, FluxPipeline, FluxControlNetModel, FluxControlPipeline
+from controlnet_aux import CannyDetector
 from diffusers.utils import load_image
 from PIL import Image
 
@@ -386,7 +387,10 @@ def control_only_gr(
             ctrl_img = ctrl_img.convert("RGB")
             
     generator = torch.Generator().manual_seed(seed) if seed is not None else None
-    ctrl_img = ctrl_img.resize((width, height), Image.BICUBIC)
+    
+    processor = CannyDetector()
+    ctrl_img = processor(ctrl_img, low_threshold=50, high_threshold=200, detect_resolution=1024, image_resolution=1024)
+    
     image = model_state(
         prompt=prompt,
         control_image=ctrl_img,
