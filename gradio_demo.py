@@ -30,6 +30,17 @@ def unload_model(model_state):
     return None, None
 
 
+def load_control_image_from_url(url):
+    if not url.strip():
+        return None
+    try:
+        control_image = load_image(url)
+        return control_image
+    except Exception as e:
+        print(f"Error loading image from URL: {e}")
+        return None
+
+
 # Function to load model
 def load_model(
     mode,
@@ -41,6 +52,8 @@ def load_model(
     lora_weight_name="furry_lora.safetensors",
     ip_adapter_model_name="XLabs-AI/flux-ip-adapter",
     ip_adapter_weight_name="ip_adapter.safetensors",
+    control_type="Canny",
+    use_control_lora=False,
 ):
     model_state, preproc_state = unload_model(model_state)
     if mode == "Text to Image":
@@ -71,10 +84,43 @@ def load_model(
             gr.update(visible=False),
         )
     elif mode == "Image to Image (Depth Control)":
-        controlnet = FluxControlNetModel.from_pretrained(
-            "InstantX/FLUX.1-dev-Controlnet-Canny-alpha", 
-            torch_dtype=torch.bfloat16,
-        )
+        # Control type specific setup
+        if control_type == "Canny":
+            controlnet = FluxControlNetModel.from_pretrained(
+                "InstantX/FLUX.1-dev-Controlnet-Canny-alpha", 
+                torch_dtype=torch.bfloat16,
+            )
+            processor = None
+            # Set control-specific LoRA
+            if use_control_lora:
+                load_lora = True
+                lora_model_name = "black-forest-labs/FLUX.1-Canny-dev-lora"
+                lora_weight_name = "lora.safetensors"
+                lora_scale = 1.0
+        elif control_type == "Depth":
+            controlnet = FluxControlNetModel.from_pretrained(
+                "InstantX/FLUX.1-dev-Controlnet-Depth-alpha", 
+                torch_dtype=torch.bfloat16,
+            )
+            if HAS_DEPTH:
+                processor = DepthPreprocessor.from_pretrained(
+                    "LiheYoung/depth-anything-large-hf"
+                )
+            else:
+                processor = None
+            # Set control-specific LoRA
+            if use_control_lora:
+                load_lora = True
+                lora_model_name = "black-forest-labs/FLUX.1-Depth-dev-lora"
+                lora_weight_name = "lora.safetensors"
+                lora_scale = 1.0
+        else:  # Custom or other types
+            controlnet = FluxControlNetModel.from_pretrained(
+                "InstantX/FLUX.1-dev-Controlnet-Canny-alpha", 
+                torch_dtype=torch.bfloat16,
+            )
+            processor = None
+        
         pipe = FluxControlNetImg2ImgPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev",
             controlnet=controlnet,
@@ -88,12 +134,6 @@ def load_model(
             # If CUDA not available, use CPU with consistent dtype
             pipe = pipe.to("cpu")
             
-        if HAS_DEPTH:
-            processor = DepthPreprocessor.from_pretrained(
-                "LiheYoung/depth-anything-large-hf"
-            )
-        else:
-            processor = None
         if load_lora:
             pipe.load_lora_weights(
                 lora_model_name,
@@ -418,6 +458,40 @@ with gr.Blocks(css=demo_css) as demo:
                 control_img = gr.Image(
                     label="Control Image",
                 )
+        
+        # Controls for loading image from URL
+        with gr.Row():
+            control_img_url = gr.Textbox(
+                label="Control Image URL",
+                placeholder="https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/robot.png",
+            )
+            control_load_btn = gr.Button("Load Image")
+        
+        # Example URLs
+        gr.Examples(
+            [
+                "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/robot.png",
+                "https://huggingface.co/InstantX/SD3-Controlnet-Canny/resolve/main/canny.jpg",
+                "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/stable-samples/img2img/sketch-mountains-input.jpg",
+            ],
+            inputs=control_img_url,
+            label="Example Control Images",
+        )
+        
+        # Control type selection
+        with gr.Row():
+            control_type = gr.Dropdown(
+                label="Control Model Type",
+                choices=["Canny", "Depth", "Custom"],
+                value="Canny",
+                info="Select the type of control model to use",
+            )
+            control_lora_checkbox = gr.Checkbox(
+                label="Use Control Type LoRA",
+                value=False,
+                info="Use the specific LoRA for this control type"
+            )
+        
         prompt2 = gr.Textbox(
             label="Prompt",
             value="",
@@ -611,6 +685,8 @@ with gr.Blocks(css=demo_css) as demo:
         lora_weight_name_box,
         ip_adapter_model_box_global,
         ip_adapter_weight_name_box_global,
+        control_type,
+        control_lora_checkbox,
     ):
         # Initial state: Loading message and disabled button
         yield (
@@ -635,6 +711,8 @@ with gr.Blocks(css=demo_css) as demo:
                 lora_weight_name_box,
                 ip_adapter_model_box_global,
                 ip_adapter_weight_name_box_global,
+                control_type,
+                control_lora_checkbox,
             )
         )
 
@@ -647,9 +725,6 @@ with gr.Blocks(css=demo_css) as demo:
             txt2img_viz,
             img2img_viz,
             ipadapter_viz,
-            # Need to return all outputs that the original load_btn.click chain updated
-            # ip_adapter_model_box_global, # These were updated by mode.change, not load_btn.click directly
-            # ip_adapter_weight_name_box_global,
         )
 
     # Hiện ô lora_model_box và lora_scale_slider khi lora_checkbox được tích
@@ -682,6 +757,8 @@ with gr.Blocks(css=demo_css) as demo:
             lora_weight_name_box,
             ip_adapter_model_box_global,
             ip_adapter_weight_name_box_global,
+            control_type,
+            control_lora_checkbox,
         ],
         outputs=[
             status_msg_box,
@@ -692,6 +769,13 @@ with gr.Blocks(css=demo_css) as demo:
             img2img_col,
             ipadapter_col,
         ],
+    )
+
+    # Add control_load_btn click event
+    control_load_btn.click(
+        load_control_image_from_url,
+        inputs=[control_img_url],
+        outputs=[control_img]
     )
 
     gen_btn.click(
