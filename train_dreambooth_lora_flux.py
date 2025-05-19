@@ -33,34 +33,25 @@ import torch.utils.checkpoint
 import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
-from accelerate.utils import (
-    DistributedDataParallelKwargs,
-    ProjectConfiguration,
-    set_seed,
-)
-from diffusers import (
-    AutoencoderKL,
-    FlowMatchEulerDiscreteScheduler,
-    FluxPipeline,
-    FluxTransformer2DModel,
-)
+from accelerate.utils import (DistributedDataParallelKwargs,
+                              ProjectConfiguration, set_seed)
+from diffusers import (AutoencoderKL, FlowMatchEulerDiscreteScheduler,
+                       FluxPipeline, FluxTransformer2DModel)
 from diffusers.optimization import get_scheduler
-from diffusers.training_utils import (
-    _set_state_dict_into_text_encoder,
-    cast_training_params,
-    compute_density_for_timestep_sampling,
-    compute_loss_weighting_for_sd3,
-    free_memory,
-)
-from diffusers.utils import (
-    check_min_version,
-    convert_unet_state_dict_to_peft,
-    is_wandb_available,
-)
-from diffusers.utils.hub_utils import load_or_create_model_card, populate_model_card
+from diffusers.training_utils import (_set_state_dict_into_text_encoder,
+                                      cast_training_params,
+                                      compute_density_for_timestep_sampling,
+                                      compute_loss_weighting_for_sd3,
+                                      free_memory)
+from diffusers.utils import (check_min_version,
+                             convert_unet_state_dict_to_peft,
+                             is_wandb_available)
+from diffusers.utils.hub_utils import (load_or_create_model_card,
+                                       populate_model_card)
 from diffusers.utils.torch_utils import is_compiled_module
 from huggingface_hub import create_repo, upload_folder
 from huggingface_hub.utils import insecure_hashlib
+from logging_class import start_queue, stop_log, write_log
 from peft import LoraConfig, set_peft_model_state_dict
 from peft.utils import get_peft_model_state_dict
 from PIL import Image
@@ -70,8 +61,6 @@ from torchvision import transforms
 from torchvision.transforms.functional import crop
 from tqdm.auto import tqdm
 from transformers import CLIPTokenizer, PretrainedConfig, T5TokenizerFast
-
-from logging_class import start_queue, stop_log, write_log
 
 if is_wandb_available():
     import wandb

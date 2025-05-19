@@ -6,10 +6,9 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from mcp.server.sse import SseServerTransport
+from model import MyModel, mcp
 from pydantic import BaseModel
 from starlette.routing import Mount
-
-from model import MyModel, mcp
 
 # ------------------------------------------------------------------------
 # Load model

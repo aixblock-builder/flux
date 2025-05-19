@@ -5,9 +5,9 @@ import logging.config
 import os
 
 from aixblock_ml.api import init_app
-from flask import Flask, abort, jsonify, request, send_file, send_from_directory
+from flask import (Flask, abort, jsonify, request, send_file,
+                   send_from_directory)
 from flask_cors import CORS
-
 from model import MyModel
 
 # from werkzeug.middleware.proxy_fix import ProxyFix
@@ -111,7 +111,6 @@ if __name__ == "__main__":
     )
 
     from flask import Flask, jsonify, send_from_directory
-
     # https://stackoverflow.com/questions/55733136/flask-swagger-ui-does-not-recognize-path-to-swagger-json
     from flask_swagger_ui import get_swaggerui_blueprint
 

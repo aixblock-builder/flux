@@ -37,43 +37,29 @@ import transformers
 import validators
 from accelerate import Accelerator
 from accelerate.logging import get_logger
-from accelerate.utils import (
-    DistributedDataParallelKwargs,
-    ProjectConfiguration,
-    set_seed,
-)
-from diffusers import (
-    AutoencoderKL,
-    FlowMatchEulerDiscreteScheduler,
-    FluxPipeline,
-    FluxTransformer2DModel,
-)
+from accelerate.utils import (DistributedDataParallelKwargs,
+                              ProjectConfiguration, set_seed)
+from diffusers import (AutoencoderKL, FlowMatchEulerDiscreteScheduler,
+                       FluxPipeline, FluxTransformer2DModel)
 from diffusers.optimization import get_scheduler
-from diffusers.training_utils import (
-    compute_density_for_timestep_sampling,
-    compute_loss_weighting_for_sd3,
-)
+from diffusers.training_utils import (compute_density_for_timestep_sampling,
+                                      compute_loss_weighting_for_sd3)
 from diffusers.utils import check_min_version, is_wandb_available
-from diffusers.utils.hub_utils import load_or_create_model_card, populate_model_card
+from diffusers.utils.hub_utils import (load_or_create_model_card,
+                                       populate_model_card)
 from diffusers.utils.import_utils import is_torch_npu_available
 from diffusers.utils.torch_utils import is_compiled_module
 from huggingface_hub import create_repo, upload_folder
 from huggingface_hub.utils import insecure_hashlib
+from logging_class import start_queue, stop_log, write_log
 from PIL import Image
 from PIL.ImageOps import exif_transpose
 from torch.utils.data import Dataset
 from torchvision import transforms
 from torchvision.transforms.functional import crop
 from tqdm.auto import tqdm
-from transformers import (
-    CLIPTextModelWithProjection,
-    CLIPTokenizer,
-    PretrainedConfig,
-    T5EncoderModel,
-    T5TokenizerFast,
-)
-
-from logging_class import start_queue, stop_log, write_log
+from transformers import (CLIPTextModelWithProjection, CLIPTokenizer,
+                          PretrainedConfig, T5EncoderModel, T5TokenizerFast)
 
 # from library import flux_utils, train_util
 
