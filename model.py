@@ -774,7 +774,8 @@ class MyModel(AIxBlockMLBase):
 
                     image_bytes = base64.b64decode(img_base64)
                     image_input = Image.open(io.BytesIO(image_bytes))
-                    image_input = load_image(image)
+                    image_input = load_image(image_input)
+                    
                 if prompt == "" or prompt is None:
                     return None, ""
                 
@@ -802,14 +803,14 @@ class MyModel(AIxBlockMLBase):
                 buffered = BytesIO()
                 image.save(buffered, format=format)
                 image.save(const.PROJ_DIR.joinpath(f"image.{format}"))
-                img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                img_base64_output = base64.b64encode(buffered.getvalue()).decode("utf-8")
                 generated_url = f"/downloads?path=image.{format}"
 
                 result = {
                     "model_version": model_id,
                     "result": {
                         "format": format,
-                        "image": img_base64,
+                        "image": img_base64_output,
                         "image_url": generated_url,
                     },
                 }
@@ -823,7 +824,7 @@ class MyModel(AIxBlockMLBase):
                         'to_name': "text_output",
                         'type': 'textarea',
                         'value': {
-                            'text': [img_base64],
+                            'text': [img_base64_output],
                             "generated_url": generated_url
                         }
                     }],
