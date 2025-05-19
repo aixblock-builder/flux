@@ -279,6 +279,10 @@ def image_to_image_gr(
             ctrl_img = Image.fromarray(arr.astype(np.uint8))
         if hasattr(ctrl_img, "mode") and ctrl_img.mode != "RGB":
             ctrl_img = ctrl_img.convert("RGB")
+    
+    # Ensure height and width are divisible by 4
+    height = (height // 4) * 4
+    width = (width // 4) * 4
             
     generator = torch.Generator().manual_seed(seed) if seed is not None else None
     image = model_state(
@@ -381,8 +385,12 @@ def control_only_gr(
                 arr = np.repeat(arr, 3, axis=0)
             arr = np.moveaxis(arr, 0, -1)  # CHW -> HWC
             ctrl_img = Image.fromarray(arr.astype(np.uint8))
-        if hasattr(ctrl_img, "mode") and ctrl_img.mode != "RGB":
-            ctrl_img = ctrl_img.convert("RGB")
+    if hasattr(ctrl_img, "mode") and ctrl_img.mode != "RGB":
+        ctrl_img = ctrl_img.convert("RGB")
+    
+    # Ensure height and width are divisible by 4
+    height = (height // 4) * 4
+    width = (width // 4) * 4
             
     generator = torch.Generator().manual_seed(seed) if seed is not None else None
     image = model_state(
@@ -487,14 +495,14 @@ with gr.Blocks(css=demo_css) as demo:
                 256,
                 1536,
                 value=640,
-                step=8,
+                step=4,
                 label="Height",
             )
             width = gr.Slider(
                 256,
                 2048,
                 value=640,
-                step=8,
+                step=4,
                 label="Width",
             )
             num_inference_steps = gr.Slider(
@@ -541,14 +549,14 @@ with gr.Blocks(css=demo_css) as demo:
                 256,
                 1536,
                 value=640,
-                step=8,
+                step=4,
                 label="Height",
             )
             width2 = gr.Slider(
                 256,
                 2048,
                 value=640,
-                step=8,
+                step=4,
                 label="Width",
             )
             num_inference_steps2 = gr.Slider(
@@ -609,14 +617,14 @@ with gr.Blocks(css=demo_css) as demo:
                 256,
                 1536,
                 value=640,
-                step=8,
+                step=4,
                 label="Height",
             )
             width_ip = gr.Slider(
                 256,
                 2048,
                 value=640,
-                step=8,
+                step=4,
                 label="Width",
             )
             seed_ip = gr.Number(
@@ -647,14 +655,14 @@ with gr.Blocks(css=demo_css) as demo:
                 256,
                 1536,
                 value=640,
-                step=8,
+                step=4,
                 label="Height",
             )
             width_ctrl = gr.Slider(
                 256,
                 2048,
                 value=640,
-                step=8,
+                step=4,
                 label="Width",
             )
             num_inference_steps_ctrl = gr.Slider(
