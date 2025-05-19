@@ -42,7 +42,19 @@ def load_model(
     ip_adapter_model_name="XLabs-AI/flux-ip-adapter",
     ip_adapter_weight_name="ip_adapter.safetensors",
 ):
-    model_state, preproc_state = unload_model(model_state)
+    # model_state, preproc_state = unload_model(model_state)
+    if model_state is not None:
+        del model_state
+    if preproc_state is not None:
+        del preproc_state
+    
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    
+    model_state = None
+    preproc_state = None
     if mode == "Text to Image":
         pipe = FluxPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev",
