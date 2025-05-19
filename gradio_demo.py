@@ -334,7 +334,8 @@ def image_to_image_ip_adapter_gr(
 
 def control_only_gr(
     model_state,
-    control_image,
+    preproc_state,
+    init_image,
     prompt,
     guidance_scale,
     height,
@@ -344,32 +345,52 @@ def control_only_gr(
 ):
     if model_state is None:
         return None
-        
-    # Process control_image
-    if isinstance(control_image, np.ndarray):
-        ctrl_img = Image.fromarray(control_image.astype("uint8"))
-    elif isinstance(control_image, Image.Image):
-        ctrl_img = control_image
-    elif isinstance(control_image, str):
-        ctrl_img = load_image(control_image)
+    if preproc_state is not None:
+        # Always process depth
+        # According to context7, gr.Image returns numpy array (uint8, HWC) or PIL.Image or string
+        if isinstance(init_image, np.ndarray):
+            control_image = Image.fromarray(init_image.astype("uint8"))
+        elif isinstance(init_image, Image.Image):
+            control_image = init_image
+        elif isinstance(init_image, str):
+            control_image = load_image(init_image)
+        else:
+            raise ValueError("init_image must be a numpy array, PIL.Image, or string")
+        # Ensure control_image is RGB
+        if hasattr(control_image, "mode") and control_image.mode != "RGB":
+            control_image = control_image.convert("RGB")
+        control_image = preproc_state(control_image)[0]
+
+        # Ensure control_image is always RGB 3 channel
+        if isinstance(control_image, np.ndarray):
+            if control_image.ndim == 2:  # grayscale
+                control_image = np.stack([control_image] * 3, axis=-1)
+            elif control_image.shape[-1] == 1:
+                control_image = np.repeat(control_image, 3, axis=-1)
+            control_image = Image.fromarray(control_image.astype(np.uint8))
+        elif "torch" in str(type(control_image)):
+            arr = control_image.cpu().numpy()
+            if arr.ndim == 2:
+                arr = np.stack([arr] * 3, axis=-1)
+            elif arr.shape[0] == 1:
+                arr = np.repeat(arr, 3, axis=0)
+            arr = np.moveaxis(arr, 0, -1)  # CHW -> HWC
+            control_image = Image.fromarray(arr.astype(np.uint8))
+        if hasattr(control_image, "mode") and control_image.mode != "RGB":
+            control_image = control_image.convert("RGB")
+        generator = torch.Generator().manual_seed(seed) if seed is not None else None
+        image = model_state(
+            prompt=prompt,
+            control_image=control_image,
+            height=height,
+            width=width,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=guidance_scale,
+            generator=generator,
+        ).images[0]
+        return image
     else:
-        raise ValueError("control_image must be a numpy array, PIL.Image, or string")
-        
-    # Ensure control_image is RGB
-    if hasattr(ctrl_img, "mode") and ctrl_img.mode != "RGB":
-        ctrl_img = ctrl_img.convert("RGB")
-            
-    generator = torch.Generator().manual_seed(seed) if seed is not None else None
-    image = model_state(
-        prompt=prompt,
-        control_image=ctrl_img,
-        height=height,
-        width=width,
-        num_inference_steps=num_inference_steps,
-        guidance_scale=guidance_scale,
-        generator=generator,
-    ).images[0]
-    return image
+        return Image.new("RGB", (width, height), color="gray")
 
 
 demo_css = """
@@ -886,6 +907,7 @@ with gr.Blocks(css=demo_css) as demo:
         control_only_gr,
         inputs=[
             model_state,
+            preproc_state,
             control_only_img,
             prompt_ctrl,
             guidance_scale_ctrl,
