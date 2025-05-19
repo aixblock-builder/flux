@@ -346,8 +346,8 @@ def control_only_gr(
     strength,
     seed,
 ):
-    if model_state is None:
-        return None
+    # if model_state is None:
+    #     return None
         
     # Process control_image (depth or canny)
     if isinstance(control_image, np.ndarray):
@@ -364,7 +364,7 @@ def control_only_gr(
         ctrl_img = ctrl_img.convert("RGB")
         
     # Apply depth processor if available
-    print(preproc_state)
+    print(preproc_state, height, width)
     if preproc_state is not None:
         ctrl_img = preproc_state(ctrl_img)[0]
         
@@ -386,18 +386,24 @@ def control_only_gr(
         if hasattr(ctrl_img, "mode") and ctrl_img.mode != "RGB":
             ctrl_img = ctrl_img.convert("RGB")
     else:
-        # Tiền xử lý bằng Canny
+        print("Before", ctrl_img.size)
+        orig_w, orig_h = ctrl_img.size
+
+        # Làm tròn chiều về bội số của 8 để tránh lỗi reshape
+        def round_to_multiple(x, base=8):
+            return base * round(x / base)
+
+        width = round_to_multiple(orig_w)
+        height = round_to_multiple(orig_h)
+
+        ctrl_img = ctrl_img.resize((width, height))  # Resize trước để tránh bị mismatch
         processor = CannyDetector()
-        ctrl_img = processor(
-            ctrl_img,
-            low_threshold=50,
-            high_threshold=200,
-            detect_resolution=1024,
-            image_resolution=1024
-        )
-        
-        height = 1024
-        width = 1024
+        ctrl_img = processor(ctrl_img, low_threshold=50, high_threshold=200,
+                            detect_resolution=width, image_resolution=width)
+
+        print("After", ctrl_img.size)
+
+    print(height, width)
 
     generator = torch.Generator().manual_seed(seed) if seed is not None else None
     
