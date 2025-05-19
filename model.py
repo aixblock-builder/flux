@@ -638,7 +638,9 @@ class MyModel(AIxBlockMLBase):
             ):
                 global pipe_predict
                 # clear VRAM
-                del pipe_predict
+                if pipe_predict is not None:
+                    del pipe_predict
+
                 gc.collect()
                 torch.cuda.empty_cache()
                 # Load model
@@ -777,12 +779,6 @@ class MyModel(AIxBlockMLBase):
                     return None, ""
                 
                 logger.info(f"task: {task}")
-                logger.info(f"load_lora: {load_lora}")
-                logger.info(f"lora_model_name: {lora_model_name}")
-                logger.info(f"lora_weight_name: {lora_weight_name}")
-                logger.info(f"model_id: {model_id}")
-                logger.info(f"ip_adapter_name: {ip_adapter_name}")
-                
                 pipe = unload_and_load_model(
                     task=task,
                     load_lora=load_lora,
