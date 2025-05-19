@@ -45,8 +45,15 @@ def load_model(
         pipe = FluxPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev",
             torch_dtype=torch.bfloat16,
-            device_map="balanced",
         )
+        
+        # Move all components to the same device
+        if torch.cuda.is_available():
+            pipe = pipe.to("cuda")
+        else:
+            # If CUDA not available, use CPU with consistent dtype
+            pipe = pipe.to("cpu")
+            
         if load_lora:
             pipe.load_lora_weights(
                 lora_model_name,
@@ -54,7 +61,6 @@ def load_model(
                 adapter_name="custom_lora",
             )
             pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
-        # pipe.enable_model_cpu_offload()
         return (
             pipe,
             None,
@@ -71,10 +77,15 @@ def load_model(
             "black-forest-labs/FLUX.1-dev",
             controlnet=controlnet,
             torch_dtype=torch.bfloat16,
-            device_map="balanced",
         )
-        # if torch.cuda.is_available():
-        #     pipe = pipe.to("cuda")
+        
+        # Move all components to the same device
+        if torch.cuda.is_available():
+            pipe = pipe.to("cuda")
+        else:
+            # If CUDA not available, use CPU with consistent dtype
+            pipe = pipe.to("cpu")
+            
         if HAS_DEPTH:
             processor = DepthPreprocessor.from_pretrained(
                 "LiheYoung/depth-anything-large-hf"
@@ -88,7 +99,6 @@ def load_model(
                 adapter_name="custom_lora",
             )
             pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
-        # pipe.enable_model_cpu_offload()
         return (
             pipe,
             processor,
@@ -100,8 +110,15 @@ def load_model(
         pipe = FluxPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev",
             torch_dtype=torch.bfloat16,
-            device_map="balanced",
         )
+        
+        # Move all components to the same device
+        if torch.cuda.is_available():
+            pipe = pipe.to("cuda")
+        else:
+            # If CUDA not available, use CPU with consistent dtype
+            pipe = pipe.to("cpu")
+            
         if load_lora:
             pipe.load_lora_weights(
                 lora_model_name,
@@ -115,7 +132,6 @@ def load_model(
             image_encoder_pretrained_model_name_or_path="openai/clip-vit-large-patch14",
         )
         pipe.set_ip_adapter_scale(1.0)
-        # pipe.enable_model_cpu_offload()
         return (
             pipe,
             None,
