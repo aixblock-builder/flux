@@ -386,29 +386,18 @@ def control_only_gr(
         if hasattr(ctrl_img, "mode") and ctrl_img.mode != "RGB":
             ctrl_img = ctrl_img.convert("RGB")
     else:
-        orig_w, orig_h = ctrl_img.size
-        def round_to_64(x):
-            return max(64, (x // 64) * 64)
-
-        rounded_w = round_to_64(orig_w)
-        rounded_h = round_to_64(orig_h)
-
         # Tiền xử lý bằng Canny
         processor = CannyDetector()
         ctrl_img = processor(
             ctrl_img,
             low_threshold=50,
             high_threshold=200,
-            detect_resolution=max(rounded_w, rounded_h),  # đảm bảo ảnh đủ lớn để detect
-            image_resolution=max(rounded_w, rounded_h)
+            detect_resolution=1024,
+            image_resolution=1024
         )
-
-        # Resize lại về kích thước làm tròn
-        ctrl_img = ctrl_img.resize((rounded_w, rounded_h))
-
-        # Thiết lập chiều cao và chiều rộng cho model
-        height = rounded_h
-        width = rounded_w
+        
+        height = 1024
+        width = 1024
 
     generator = torch.Generator().manual_seed(seed) if seed is not None else None
     
