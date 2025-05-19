@@ -395,12 +395,10 @@ with gr.Blocks(css=demo_css) as demo:
             with gr.Column(scale=1):
                 init_img = gr.Image(
                     label="Input Image",
-                    info="The base image to transform",
                 )
             with gr.Column(scale=1):
                 control_img = gr.Image(
                     label="Control Image",
-                    info="The control image (depth/canny) to guide generation",
                 )
         prompt2 = gr.Textbox(
             label="Prompt",
