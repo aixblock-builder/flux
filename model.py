@@ -766,6 +766,9 @@ class MyModel(AIxBlockMLBase):
                 img_base64 = kwargs.get("img_base64", None)
                 negative_prompt = kwargs.get("negative_prompt", None)
 
+                if task == "text-generation":
+                    task = "text to image"
+
                 # image
                 image_input = None
                 if img_base64:
