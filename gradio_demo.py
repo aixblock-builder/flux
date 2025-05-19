@@ -388,9 +388,10 @@ def control_only_gr(
     if hasattr(ctrl_img, "mode") and ctrl_img.mode != "RGB":
         ctrl_img = ctrl_img.convert("RGB")
     
-    # Ensure height and width are divisible by 4
+    width, height = ctrl_img.size
     height = (height // 4) * 4
     width = (width // 4) * 4
+    ctrl_img = ctrl_img.resize((width, height))
             
     generator = torch.Generator().manual_seed(seed) if seed is not None else None
     image = model_state(
