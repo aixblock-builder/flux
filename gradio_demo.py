@@ -8,28 +8,25 @@ from controlnet_aux import CannyDetector
 from diffusers.utils import load_image
 from PIL import Image
 from image_gen_aux import DepthPreprocessor
-
+import torch.nn as nn
+from transformers import PreTrainedModel
+from diffusers import DiffusionPipeline
 # --------------------------------------------------------------
 
 
 # Function to unload model
-def unload_model(model_state):
+def unload_models(*models):
     if model_state is not None:
         del model_state
 
-    try: 
-        for name in list(globals()):
-            if name not in ["gc", "torch", "unload_all_models"]:  # giữ lại những gì cần
-                del globals()[name]
-    except:
-        pass
-
+    for m in models:
+        if isinstance(m, (nn.Module, PreTrainedModel, DiffusionPipeline)):
+            del m
+            
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()
-    
-    return None, None
 
 # Function to load model
 def load_model(
