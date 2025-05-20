@@ -366,26 +366,10 @@ def control_only_gr(
     # Apply depth processor if available
     print(preproc_state, height, width)
     if preproc_state is not None:
-        ctrl_img = preproc_state(ctrl_img)[0]
-        
-        # Ensure control_image is always RGB 3 channel
-        if isinstance(ctrl_img, np.ndarray):
-            if ctrl_img.ndim == 2:  # grayscale
-                ctrl_img = np.stack([ctrl_img] * 3, axis=-1)
-            elif ctrl_img.shape[-1] == 1:
-                ctrl_img = np.repeat(ctrl_img, 3, axis=-1)
-            ctrl_img = Image.fromarray(ctrl_img.astype(np.uint8))
-        elif "torch" in str(type(ctrl_img)):
-            arr = ctrl_img.cpu().numpy()
-            if arr.ndim == 2:
-                arr = np.stack([arr] * 3, axis=-1)
-            elif arr.shape[0] == 1:
-                arr = np.repeat(arr, 3, axis=0)
-            arr = np.moveaxis(arr, 0, -1)  # CHW -> HWC
-            ctrl_img = Image.fromarray(arr.astype(np.uint8))
-        if hasattr(ctrl_img, "mode") and ctrl_img.mode != "RGB":
-            ctrl_img = ctrl_img.convert("RGB")
+        ctrl_img = preproc_state(ctrl_img)[0].convert("RGB")
+
     else:
+        model_state.load_lora_weights("black-forest-labs/FLUX.1-Canny-dev-lora")
         print("Before", ctrl_img.size)
         orig_w, orig_h = ctrl_img.size
 
