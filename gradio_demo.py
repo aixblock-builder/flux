@@ -7,16 +7,9 @@ from diffusers import FluxControlNetImg2ImgPipeline, FluxPipeline, FluxControlNe
 from controlnet_aux import CannyDetector
 from diffusers.utils import load_image
 from PIL import Image
+from image_gen_aux import DepthPreprocessor
 
 # --------------------------------------------------------------
-
-# Try to import DepthPreprocessor if available
-try:
-    from image_gen_aux import DepthPreprocessor
-
-    HAS_DEPTH = True
-except ImportError:
-    HAS_DEPTH = False
 
 
 # Function to unload model
@@ -37,13 +30,13 @@ def load_model(
     model_state,
     preproc_state,
     load_lora=False,
-    lora_model_name="XLabs-AI/flux-furry-lora",
-    lora_scale=0.9,
-    lora_weight_name="furry_lora.safetensors",
+    lora_model_name="black-forest-labs/FLUX.1-Canny-dev-lora",
+    ip_adapter_scale=0.9,
     ip_adapter_model_name="XLabs-AI/flux-ip-adapter",
     ip_adapter_weight_name="ip_adapter.safetensors",
 ):
     model_state, preproc_state = unload_model(model_state)
+    
     if mode == "Text to Image":
         pipe = FluxPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev",
@@ -57,13 +50,13 @@ def load_model(
             # If CUDA not available, use CPU with consistent dtype
             pipe = pipe.to("cpu")
             
-        if load_lora:
-            pipe.load_lora_weights(
-                lora_model_name,
-                weight_name=lora_weight_name,
-                adapter_name="custom_lora",
-            )
-            pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
+        # if load_lora:
+        #     pipe.load_lora_weights(
+        #         lora_model_name,
+        #         weight_name=lora_weight_name,
+        #         adapter_name="custom_lora",
+        #     )
+        #     pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
         return (
             pipe,
             None,
@@ -89,23 +82,21 @@ def load_model(
         else:
             # If CUDA not available, use CPU with consistent dtype
             pipe = pipe.to("cpu")
-            
-        if HAS_DEPTH:
-            processor = DepthPreprocessor.from_pretrained(
-                "LiheYoung/depth-anything-large-hf"
-            )
-        else:
-            processor = None
-        if load_lora:
-            pipe.load_lora_weights(
-                lora_model_name,
-                weight_name=lora_weight_name,
-                adapter_name="custom_lora",
-            )
-            pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
+        
+        # processor = DepthPreprocessor.from_pretrained(
+        #     "LiheYoung/depth-anything-large-hf"
+        # )
+
+        # if load_lora:
+        #     pipe.load_lora_weights(
+        #         lora_model_name,
+        #         weight_name=lora_weight_name,
+        #         adapter_name="custom_lora",
+        #     )
+        #     pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
         return (
             pipe,
-            processor,
+            None,
             gr.update(visible=False),
             gr.update(visible=True),
             gr.update(visible=False),
@@ -124,24 +115,23 @@ def load_model(
             # If CUDA not available, use CPU with consistent dtype
             pipe = pipe.to("cpu")
 
-        if HAS_DEPTH:
-            processor = DepthPreprocessor.from_pretrained(
-                "LiheYoung/depth-anything-large-hf"
-            )
-        else:
-            processor = None
-
         if load_lora:
             pipe.load_lora_weights(
                 lora_model_name if lora_model_name else "black-forest-labs/FLUX.1-Canny-dev-lora",
-                weight_name=lora_weight_name,
-                adapter_name="custom_lora",
+                # weight_name=lora_weight_name,
+                # adapter_name="custom_lora",
             )
-            pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
-            
+            # pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
+        try:
+            processor = DepthPreprocessor.from_pretrained(
+                "LiheYoung/depth-anything-large-hf"
+            )
+        except:
+            processor = None
+
         return (
             pipe,
-            None,
+            processor,
             gr.update(visible=False),
             gr.update(visible=False),
             gr.update(visible=True),
@@ -160,19 +150,19 @@ def load_model(
             # If CUDA not available, use CPU with consistent dtype
             pipe = pipe.to("cpu")
             
-        if load_lora:
-            pipe.load_lora_weights(
-                lora_model_name,
-                weight_name=lora_weight_name,
-                adapter_name="custom_lora",
-            )
-            pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
+        # if load_lora:
+        #     pipe.load_lora_weights(
+        #         lora_model_name,
+        #         weight_name=lora_weight_name,
+        #         adapter_name="custom_lora",
+        #     )
+        #     pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
         pipe.load_ip_adapter(
             ip_adapter_model_name,
             weight_name=ip_adapter_weight_name,
             image_encoder_pretrained_model_name_or_path="openai/clip-vit-large-patch14",
         )
-        pipe.set_ip_adapter_scale(1.0)
+        pipe.set_ip_adapter_scale(ip_adapter_scale)
         return (
             pipe,
             None,
@@ -369,7 +359,6 @@ def control_only_gr(
         ctrl_img = preproc_state(ctrl_img)[0].convert("RGB")
 
     else:
-        model_state.load_lora_weights("black-forest-labs/FLUX.1-Canny-dev-lora")
         print("Before", ctrl_img.size)
         orig_w, orig_h = ctrl_img.size
 
@@ -431,33 +420,34 @@ with gr.Blocks(css=demo_css) as demo:
             lora_checkbox = gr.Checkbox(
                 label="Load LoRA",
                 value=False,
+                visible=False
             )
             lora_model_box = gr.Textbox(
                 label="LoRA Model",
-                value="XLabs-AI/flux-lora-collection",
+                value="black-forest-labs/FLUX.1-Canny-dev-lora",
                 visible=False,
                 info="HuggingFace model repo or path for LoRA weights.",
             )
-            lora_scale_slider = gr.Slider(
-                minimum=0.0,
-                maximum=1.0,
-                value=1.0,
-                step=0.01,
-                label="LoRA Scale",
-                visible=False,
-                info="Adjust the influence of the loaded LoRA weights.",
-            )
-            lora_weight_name_box = gr.Textbox(
-                label="LoRA Weight Name",
-                value="anime_lora.safetensors",
-                visible=False,
-                info="Name of the LoRA weight file.",
-            )
+            # lora_weight_name_box = gr.Textbox(
+            #     label="LoRA Weight Name",
+            #     value="anime_lora.safetensors",
+            #     visible=False,
+            #     info="Name of the LoRA weight file.",
+            # )
             ip_adapter_model_box_global = gr.Textbox(
                 label="IP-Adapter Model",
                 value="XLabs-AI/flux-ip-adapter",
                 visible=False,
                 info="HuggingFace model repo or path for IP-Adapter weights.",
+            )
+            ip_adapter_scale_slider = gr.Slider(
+                minimum=0.0,
+                maximum=1.0,
+                value=1.0,
+                step=0.01,
+                label="IP-Adapter Scale",
+                visible=False,
+                info="Adjust the influence of the loaded IP-Adapter weights.",
             )
             ip_adapter_weight_name_box_global = gr.Textbox(
                 label="IP-Adapter Weight Name",
@@ -584,10 +574,10 @@ with gr.Blocks(css=demo_css) as demo:
             )
         gen_btn2 = gr.Button("Generate")
         img_out2 = gr.Image(label="Output Image")
-        if not HAS_DEPTH:
-            gr.Markdown(
-                "<span style='color:red'>Missing package image_gen_aux or DepthPreprocessor! Please install to use Depth Control.</span>"
-            )
+        # if not HAS_DEPTH:
+        #     gr.Markdown(
+        #         "<span style='color:red'>Missing package image_gen_aux or DepthPreprocessor! Please install to use Depth Control.</span>"
+        #     )
 
     with gr.Column(visible=False) as ipadapter_col:
         init_img_ip = gr.Image(
@@ -704,6 +694,9 @@ with gr.Blocks(css=demo_css) as demo:
                 gr.update(visible=False),
                 gr.update(visible=False),
                 gr.update(visible=True),
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=False),
             )
         elif selected_mode == "Image to Image (Depth Control)":
             return (
@@ -717,6 +710,9 @@ with gr.Blocks(css=demo_css) as demo:
                 gr.update(visible=False),
                 gr.update(visible=False),
                 gr.update(visible=True),
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=False),
             )
         elif selected_mode == "Image Control (Depth)":
             return (
@@ -730,6 +726,9 @@ with gr.Blocks(css=demo_css) as demo:
                 gr.update(visible=False),
                 gr.update(visible=False),
                 gr.update(visible=True),
+                gr.update(visible=True),
+                gr.update(visible=False),
+                gr.update(visible=False),
             )
         elif selected_mode == "Image to Image (IP Adapter)":
             return (
@@ -742,6 +741,9 @@ with gr.Blocks(css=demo_css) as demo:
                 gr.Button(interactive=True, elem_classes=[], variant="primary"),
                 gr.update(visible=True),
                 gr.update(visible=True),
+                gr.update(visible=True),
+                gr.update(visible=False),
+                gr.update(visible=False),
                 gr.update(visible=True),
             )
         else:
@@ -756,6 +758,9 @@ with gr.Blocks(css=demo_css) as demo:
                 gr.update(visible=False),
                 gr.update(visible=False),
                 gr.update(visible=True),
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=False),
             )
 
     mode.change(
@@ -772,6 +777,9 @@ with gr.Blocks(css=demo_css) as demo:
             ip_adapter_model_box_global,
             ip_adapter_weight_name_box_global,
             status_msg_box,
+            lora_checkbox,
+            lora_model_box,
+            ip_adapter_scale_slider,
         ],
     )
 
@@ -795,9 +803,8 @@ with gr.Blocks(css=demo_css) as demo:
         preproc_state,
         lora_checkbox,
         lora_model_box,
-        lora_scale_slider,
-        lora_weight_name_box,
         ip_adapter_model_box_global,
+        ip_adapter_scale_slider,
         ip_adapter_weight_name_box_global,
     ):
         # Initial state: Loading message and disabled button
@@ -820,8 +827,7 @@ with gr.Blocks(css=demo_css) as demo:
                 preproc_state,
                 lora_checkbox,
                 lora_model_box,
-                lora_scale_slider,
-                lora_weight_name_box,
+                ip_adapter_scale_slider,
                 ip_adapter_model_box_global,
                 ip_adapter_weight_name_box_global,
             )
@@ -842,15 +848,20 @@ with gr.Blocks(css=demo_css) as demo:
     # Hiện ô lora_model_box và lora_scale_slider khi lora_checkbox được tích
     def toggle_lora_controls(checked):
         return (
+            gr.update(visible=checked)
+        )
+    
+    def toggle_ip_adapter_controls(checked):
+        return (
             gr.update(visible=checked),
             gr.update(visible=checked),
             gr.update(visible=checked),
         )
-
+    
     lora_checkbox.change(
         toggle_lora_controls,
         inputs=lora_checkbox,
-        outputs=[lora_model_box, lora_scale_slider, lora_weight_name_box],
+        outputs=[lora_model_box],
     )
 
     # Hiệu ứng loading cho nút Load Model (thêm class blinking)
@@ -865,9 +876,8 @@ with gr.Blocks(css=demo_css) as demo:
             preproc_state,
             lora_checkbox,
             lora_model_box,
-            lora_scale_slider,
-            lora_weight_name_box,
             ip_adapter_model_box_global,
+            ip_adapter_scale_slider,
             ip_adapter_weight_name_box_global,
         ],
         outputs=[
