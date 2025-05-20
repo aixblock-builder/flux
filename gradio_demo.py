@@ -17,12 +17,16 @@ def unload_model(model_state):
     if model_state is not None:
         del model_state
         
+    for name in list(globals()):
+        if name not in ["gc", "torch", "unload_all_models"]:  # giữ lại những gì cần
+            del globals()[name]
+
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-
+        torch.cuda.ipc_collect()
+    
     return None, None
-
 
 # Function to load model
 def load_model(
@@ -129,6 +133,7 @@ def load_model(
         except:
             processor = None
 
+        print("Processor", processor)
         return (
             pipe,
             processor,
