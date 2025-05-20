@@ -16,10 +16,13 @@ from image_gen_aux import DepthPreprocessor
 def unload_model(model_state):
     if model_state is not None:
         del model_state
-        
-    for name in list(globals()):
-        if name not in ["gc", "torch", "unload_all_models"]:  # giữ lại những gì cần
-            del globals()[name]
+
+    try: 
+        for name in list(globals()):
+            if name not in ["gc", "torch", "unload_all_models"]:  # giữ lại những gì cần
+                del globals()[name]
+    except:
+        pass
 
     gc.collect()
     if torch.cuda.is_available():
