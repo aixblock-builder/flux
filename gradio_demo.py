@@ -35,7 +35,9 @@ def load_model(
     ip_adapter_scale=0.9,
     ip_adapter_model_name="XLabs-AI/flux-ip-adapter",
     ip_adapter_weight_name="ip_adapter.safetensors",
+    load_depth=False,
 ):
+    print("model_state", model_state)
     model_state, preproc_state = unload_model(model_state)
     
     if mode == "Text to Image":
@@ -51,17 +53,18 @@ def load_model(
             # If CUDA not available, use CPU with consistent dtype
             pipe = pipe.to("cpu")
             
-        # if load_lora:
-        #     pipe.load_lora_weights(
-        #         lora_model_name,
-        #         weight_name=lora_weight_name,
-        #         adapter_name="custom_lora",
-        #     )
+        if load_lora:
+            pipe.load_lora_weights(
+                lora_model_name,
+                # weight_name=lora_weight_name,
+                # adapter_name="custom_lora",
+            )
         #     pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
         return (
             pipe,
             None,
             gr.update(visible=True),
+            gr.update(visible=False),
             gr.update(visible=False),
             gr.update(visible=False),
             gr.update(visible=False),
@@ -88,18 +91,17 @@ def load_model(
         #     "LiheYoung/depth-anything-large-hf"
         # )
 
-        # if load_lora:
-        #     pipe.load_lora_weights(
-        #         lora_model_name,
-        #         weight_name=lora_weight_name,
-        #         adapter_name="custom_lora",
-        #     )
-        #     pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
+        if load_lora:
+            pipe.load_lora_weights(
+                lora_model_name
+            )
+
         return (
             pipe,
             None,
             gr.update(visible=False),
             gr.update(visible=True),
+            gr.update(visible=False),
             gr.update(visible=False),
             gr.update(visible=False),
         )
@@ -122,7 +124,8 @@ def load_model(
             # adapter_name="custom_lora",
         )
             # pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
-        if load_lora:
+        
+        if load_depth:
             processor = DepthPreprocessor.from_pretrained(
                 "LiheYoung/depth-anything-large-hf"
             )
@@ -137,6 +140,7 @@ def load_model(
             gr.update(visible=False),
             gr.update(visible=True),
             gr.update(visible=False),
+            gr.update(visible=False),
         )
     elif mode == "Image to Image (IP Adapter)":
         pipe = FluxPipeline.from_pretrained(
@@ -150,7 +154,12 @@ def load_model(
         else:
             # If CUDA not available, use CPU with consistent dtype
             pipe = pipe.to("cpu")
-            
+        
+        if load_lora:
+            pipe.load_lora_weights(
+                lora_model_name
+            )
+
         pipe.load_ip_adapter(
             ip_adapter_model_name,
             weight_name=ip_adapter_weight_name,
@@ -164,11 +173,50 @@ def load_model(
             gr.update(visible=False),
             gr.update(visible=False),
             gr.update(visible=True),
+            gr.update(visible=False),
         )
+    elif mode == "Image to Image (Multi)":
+        controlnet = FluxControlNetModel.from_pretrained(
+            "InstantX/FLUX.1-dev-Controlnet-Canny-alpha", 
+            torch_dtype=torch.bfloat16,
+        )
+        pipe = FluxControlNetImg2ImgPipeline.from_pretrained(
+            "black-forest-labs/FLUX.1-dev",
+            controlnet=controlnet,
+            torch_dtype=torch.bfloat16,
+        )
+        
+        # Move all components to the same device
+        if torch.cuda.is_available():
+            pipe = pipe.to("cuda")
+        else:
+            # If CUDA not available, use CPU with consistent dtype
+            pipe = pipe.to("cpu")
+        
+        # processor = DepthPreprocessor.from_pretrained(
+        #     "LiheYoung/depth-anything-large-hf"
+        # )
+
+        if load_lora:
+            pipe.load_lora_weights(
+                lora_model_name
+            )
+
+        return (
+            pipe,
+            None,
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(visible=True),
+        )
+    
     else:
         return (
             None,
             None,
+            gr.update(visible=False),
             gr.update(visible=False),
             gr.update(visible=False),
             gr.update(visible=False),
@@ -245,25 +293,7 @@ def image_to_image_gr(
         
     # Apply depth processor if available
     if preproc_state is not None:
-        ctrl_img = preproc_state(ctrl_img)[0]
-        
-        # Ensure control_image is always RGB 3 channel
-        if isinstance(ctrl_img, np.ndarray):
-            if ctrl_img.ndim == 2:  # grayscale
-                ctrl_img = np.stack([ctrl_img] * 3, axis=-1)
-            elif ctrl_img.shape[-1] == 1:
-                ctrl_img = np.repeat(ctrl_img, 3, axis=-1)
-            ctrl_img = Image.fromarray(ctrl_img.astype(np.uint8))
-        elif "torch" in str(type(ctrl_img)):
-            arr = ctrl_img.cpu().numpy()
-            if arr.ndim == 2:
-                arr = np.stack([arr] * 3, axis=-1)
-            elif arr.shape[0] == 1:
-                arr = np.repeat(arr, 3, axis=0)
-            arr = np.moveaxis(arr, 0, -1)  # CHW -> HWC
-            ctrl_img = Image.fromarray(arr.astype(np.uint8))
-        if hasattr(ctrl_img, "mode") and ctrl_img.mode != "RGB":
-            ctrl_img = ctrl_img.convert("RGB")
+        ctrl_img = preproc_state(ctrl_img)[0].convert("RGB")
             
     generator = torch.Generator().manual_seed(seed) if seed is not None else None
     image = model_state(
@@ -386,6 +416,59 @@ def control_only_gr(
     return image
 
 
+def control_multi_gr(
+    model_state,
+    preproc_state,
+    image_upload,  # list of uploaded images
+    prompt,
+    guidance_scale,
+    height,
+    width,
+    num_inference_steps,
+    max_sequence_length,
+    strength,
+    seed,
+):
+    if model_state is None or not image_upload or len(image_upload) < 2:
+        return None 
+
+    # Load and convert uploaded files to PIL Images
+    images = []
+    for f in image_upload:
+        if isinstance(f, str):
+            img = Image.open(f)
+        else:
+            img = Image.open(f.name)
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        images.append(img)
+
+    generator = torch.Generator().manual_seed(seed) if seed is not None else None
+
+    # Use first image as initial image
+    current_image = images[0]
+
+    # Chain through remaining images as control images
+    for ctrl_img in images[1:]:
+        control_image = ctrl_img
+
+        if preproc_state is not None:
+            control_image = preproc_state(control_image)[0].convert("RGB")
+
+        current_image = model_state(
+            prompt=prompt,
+            image=current_image,
+            control_image=control_image,
+            height=height,
+            width=width,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=guidance_scale,
+            strength=strength,
+            generator=generator,
+        ).images[0]
+
+    return current_image
+
 demo_css = """
 .blinking {
     animation: blinker 1s linear infinite;
@@ -405,6 +488,7 @@ with gr.Blocks(css=demo_css) as demo:
                     "Image to Image (Depth Control)",
                     "Image Control (Depth)",
                     "Image to Image (IP Adapter)",
+                    "Image to Image (Multi)",
                 ],
                 value="Text to Image",
                 label="Mode",
@@ -412,7 +496,12 @@ with gr.Blocks(css=demo_css) as demo:
             )
         with gr.Column(scale=1):
             lora_checkbox = gr.Checkbox(
-                label="Load Deep Processor",
+                label="Load lora",
+                value=False,
+                visible=True
+            )
+            depth_checkbox = gr.Checkbox(
+                label="Load depth processor",
                 value=False,
                 visible=False
             )
@@ -568,10 +657,6 @@ with gr.Blocks(css=demo_css) as demo:
             )
         gen_btn2 = gr.Button("Generate")
         img_out2 = gr.Image(label="Output Image")
-        # if not HAS_DEPTH:
-        #     gr.Markdown(
-        #         "<span style='color:red'>Missing package image_gen_aux or DepthPreprocessor! Please install to use Depth Control.</span>"
-        #     )
 
     with gr.Column(visible=False) as ipadapter_col:
         init_img_ip = gr.Image(
@@ -675,10 +760,74 @@ with gr.Blocks(css=demo_css) as demo:
         gen_btn_ctrl = gr.Button("Generate")
         img_out_ctrl = gr.Image(label="Output Image")
 
+    with gr.Column(visible=False) as control_multi_col:
+        with gr.Row():
+            image_upload = gr.File(
+                label="Upload Images",
+                file_types=["image"],
+                file_count="multiple",  # Cho phép nhiều ảnh
+            )
+            
+        prompt5 = gr.Textbox(
+            label="Prompt",
+            value="",
+            info="Describe the modifications or style for the output image.",
+        )
+        with gr.Accordion("Advanced Options", open=False):
+            guidance_scale5 = gr.Slider(
+                0,
+                20,
+                value=10.0,
+                step=0.1,
+                label="Guidance Scale",
+            )
+            height5 = gr.Slider(
+                256,
+                1536,
+                value=640,
+                step=8,
+                label="Height",
+            )
+            width5 = gr.Slider(
+                256,
+                2048,
+                value=640,
+                step=8,
+                label="Width",
+            )
+            num_inference_steps5 = gr.Slider(
+                1,
+                100,
+                value=30,
+                step=1,
+                label="Num Inference Steps",
+            )
+            max_sequence_length5 = gr.Slider(
+                32,
+                512,
+                value=256,
+                step=8,
+                label="Max Sequence Length",
+            )
+            strength5 = gr.Slider(
+                0.0,
+                1.0,
+                value=0.5,
+                step=0.01,
+                label="Strength",
+            )
+            seed5 = gr.Number(
+                value=42,
+                label="Seed (int)",
+            )
+        gen_btn5 = gr.Button("Generate")
+        img_out5 = gr.Image(label="Output Image")
+
     def switch_mode(selected_mode):
         if selected_mode == "Text to Image":
             return (
                 gr.update(visible=True),
+                gr.update(visible=False),
                 gr.update(visible=False),
                 gr.update(visible=False),
                 gr.update(visible=False),
@@ -687,6 +836,7 @@ with gr.Blocks(css=demo_css) as demo:
                 gr.Button(interactive=True, elem_classes=[], variant="primary"),
                 gr.update(visible=False),
                 gr.update(visible=False),
+                gr.update(visible=True),
                 gr.update(visible=True),
                 gr.update(visible=False),
                 gr.update(visible=False),
@@ -698,11 +848,13 @@ with gr.Blocks(css=demo_css) as demo:
                 gr.update(visible=True),
                 gr.update(visible=False),
                 gr.update(visible=False),
+                gr.update(visible=False),
                 None,
                 None,
                 gr.Button(interactive=True, elem_classes=[], variant="primary"),
                 gr.update(visible=False),
                 gr.update(visible=False),
+                gr.update(visible=True),
                 gr.update(visible=True),
                 gr.update(visible=False),
                 gr.update(visible=False),
@@ -714,15 +866,17 @@ with gr.Blocks(css=demo_css) as demo:
                 gr.update(visible=False),
                 gr.update(visible=True),
                 gr.update(visible=False),
+                gr.update(visible=False),
                 None,
                 None,
                 gr.Button(interactive=True, elem_classes=[], variant="primary"),
                 gr.update(visible=False),
                 gr.update(visible=False),
                 gr.update(visible=True),
-                gr.update(visible=True),
+                gr.update(visible=False),
                 gr.update(visible=True),
                 gr.update(visible=False),
+                gr.update(visible=True),
             )
         elif selected_mode == "Image to Image (IP Adapter)":
             return (
@@ -730,15 +884,35 @@ with gr.Blocks(css=demo_css) as demo:
                 gr.update(visible=False),
                 gr.update(visible=False),
                 gr.update(visible=True),
+                gr.update(visible=False),
                 None,
                 None,
                 gr.Button(interactive=True, elem_classes=[], variant="primary"),
                 gr.update(visible=True),
                 gr.update(visible=True),
                 gr.update(visible=True),
+                gr.update(visible=True),
+                gr.update(visible=False),
+                gr.update(visible=True),
+                gr.update(visible=False),
+            )
+        elif selected_mode == "Image to Image (Multi)":
+            return (
+                gr.update(visible=False),
+                gr.update(visible=False),
                 gr.update(visible=False),
                 gr.update(visible=False),
                 gr.update(visible=True),
+                None,
+                None,
+                gr.Button(interactive=True, elem_classes=[], variant="primary"),
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=True),
+                gr.update(visible=True),
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(visible=False),
             )
         else:
             return (
@@ -755,6 +929,7 @@ with gr.Blocks(css=demo_css) as demo:
                 gr.update(visible=False),
                 gr.update(visible=False),
                 gr.update(visible=False),
+                gr.update(visible=False),
             )
 
     mode.change(
@@ -765,6 +940,7 @@ with gr.Blocks(css=demo_css) as demo:
             img2img_col,
             control_only_col,
             ipadapter_col,
+            control_multi_col,
             model_state,
             preproc_state,
             load_btn,
@@ -774,6 +950,7 @@ with gr.Blocks(css=demo_css) as demo:
             lora_checkbox,
             lora_model_box,
             ip_adapter_scale_slider,
+            depth_checkbox,
         ],
     )
 
@@ -800,6 +977,7 @@ with gr.Blocks(css=demo_css) as demo:
         ip_adapter_model_box_global,
         ip_adapter_scale_slider,
         ip_adapter_weight_name_box_global,
+        depth_checkbox,
     ):
         # Initial state: Loading message and disabled button
         yield (
@@ -811,10 +989,11 @@ with gr.Blocks(css=demo_css) as demo:
             gr.skip(),  # img2img_col
             gr.skip(),  # control_only_col
             gr.skip(),  # ipadapter_col
+            gr.skip(),  # control_multi_col
         )
 
         # Load the model (this is the potentially long-running part)
-        new_model_state, new_preproc_state, txt2img_viz, img2img_viz, control_only_viz, ipadapter_viz = (
+        new_model_state, new_preproc_state, txt2img_viz, img2img_viz, control_only_viz, ipadapter_viz, control_multi_viz = (
             load_model(
                 mode,
                 model_state,
@@ -824,6 +1003,7 @@ with gr.Blocks(css=demo_css) as demo:
                 ip_adapter_scale_slider,
                 ip_adapter_model_box_global,
                 ip_adapter_weight_name_box_global,
+                depth_checkbox,
             )
         )
 
@@ -837,6 +1017,7 @@ with gr.Blocks(css=demo_css) as demo:
             img2img_viz,
             control_only_viz,
             ipadapter_viz,
+            control_multi_viz,
         )
 
     # Hiện ô lora_model_box và lora_scale_slider khi lora_checkbox được tích
@@ -845,18 +1026,11 @@ with gr.Blocks(css=demo_css) as demo:
             gr.update(visible=checked)
         )
     
-    def toggle_ip_adapter_controls(checked):
-        return (
-            gr.update(visible=checked),
-            gr.update(visible=checked),
-            gr.update(visible=checked),
-        )
-    
-    # lora_checkbox.change(
-    #     toggle_lora_controls,
-    #     inputs=lora_checkbox,
-    #     outputs=[lora_model_box],
-    # )
+    lora_checkbox.change(
+        toggle_lora_controls,
+        inputs=lora_checkbox,
+        outputs=[lora_model_box],
+    )
 
     # Hiệu ứng loading cho nút Load Model (thêm class blinking)
     def unset_btn_loading():
@@ -873,6 +1047,7 @@ with gr.Blocks(css=demo_css) as demo:
             ip_adapter_model_box_global,
             ip_adapter_scale_slider,
             ip_adapter_weight_name_box_global,
+            depth_checkbox,
         ],
         outputs=[
             status_msg_box,
@@ -883,6 +1058,7 @@ with gr.Blocks(css=demo_css) as demo:
             img2img_col,
             control_only_col,
             ipadapter_col,
+            control_multi_col,
         ],
     )
 
@@ -948,6 +1124,24 @@ with gr.Blocks(css=demo_css) as demo:
         ],
         outputs=img_out_ctrl,
     )
+    gen_btn5.click(
+        control_multi_gr,
+        inputs=[
+            model_state,
+            preproc_state,
+            image_upload,
+            prompt5,
+            guidance_scale5,
+            height5,
+            width5,
+            num_inference_steps5,
+            max_sequence_length5,
+            strength5,
+            seed5,
+        ],
+        outputs=img_out5,
+    )
+
 
 if __name__ == "__main__":
     demo.launch(share=True)
