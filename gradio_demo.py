@@ -15,7 +15,7 @@ from diffusers import DiffusionPipeline
 
 
 # Function to unload model
-def unload_models(*models):
+def unload_model(*models):
     if model_state is not None:
         del model_state
 
