@@ -357,27 +357,27 @@ def control_only_gr(
         
     # Apply depth processor if available
     print(preproc_state, height, width)
+    print("Before", ctrl_img.size)
+    orig_w, orig_h = ctrl_img.size
+
+    # Làm tròn chiều về bội số của 8 để tránh lỗi reshape
+    def round_to_multiple(x, base=8):
+        return base * round(x / base)
+
+    width = round_to_multiple(orig_w)
+    height = round_to_multiple(orig_h)
+
+    ctrl_img = ctrl_img.resize((width, height))
+
     if preproc_state is not None:
         ctrl_img = preproc_state(ctrl_img)[0].convert("RGB")
-
     else:
-        print("Before", ctrl_img.size)
-        orig_w, orig_h = ctrl_img.size
-
-        # Làm tròn chiều về bội số của 8 để tránh lỗi reshape
-        def round_to_multiple(x, base=8):
-            return base * round(x / base)
-
-        width = round_to_multiple(orig_w)
-        height = round_to_multiple(orig_h)
-
-        ctrl_img = ctrl_img.resize((width, height))  # Resize trước để tránh bị mismatch
+        # Resize trước để tránh bị mismatch
         processor = CannyDetector()
         ctrl_img = processor(ctrl_img, low_threshold=50, high_threshold=200,
                             detect_resolution=width, image_resolution=width)
 
-        print("After", ctrl_img.size)
-
+    print("After", ctrl_img.size)
     print(height, width)
 
     generator = torch.Generator().manual_seed(seed) if seed is not None else None
