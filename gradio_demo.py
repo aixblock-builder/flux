@@ -14,9 +14,8 @@ from image_gen_aux import DepthPreprocessor
 
 # Function to unload model
 def unload_model(model_state):
-    if model_state is not None:
-        del model_state
-        
+    # if model_state is not None:
+    #     del model_state
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -502,7 +501,7 @@ with gr.Blocks(css=demo_css) as demo:
             )
             depth_checkbox = gr.Checkbox(
                 label="Load depth processor",
-                value=False,
+                value=True,
                 visible=False
             )
             lora_model_box = gr.Textbox(
