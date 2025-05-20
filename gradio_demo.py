@@ -30,7 +30,7 @@ def load_model(
     mode,
     model_state,
     preproc_state,
-    load_lora=True,
+    load_lora=False,
     lora_model_name="black-forest-labs/FLUX.1-Canny-dev-lora",
     ip_adapter_scale=0.9,
     ip_adapter_model_name="XLabs-AI/flux-ip-adapter",
@@ -122,11 +122,11 @@ def load_model(
             # adapter_name="custom_lora",
         )
             # pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
-        try:
+        if load_lora:
             processor = DepthPreprocessor.from_pretrained(
                 "LiheYoung/depth-anything-large-hf"
             )
-        except:
+        else:
             processor = None
 
         print("Processor", processor)
@@ -151,13 +151,6 @@ def load_model(
             # If CUDA not available, use CPU with consistent dtype
             pipe = pipe.to("cpu")
             
-        # if load_lora:
-        #     pipe.load_lora_weights(
-        #         lora_model_name,
-        #         weight_name=lora_weight_name,
-        #         adapter_name="custom_lora",
-        #     )
-        #     pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
         pipe.load_ip_adapter(
             ip_adapter_model_name,
             weight_name=ip_adapter_weight_name,
@@ -418,11 +411,11 @@ with gr.Blocks(css=demo_css) as demo:
                 info="Choose the generation mode.",
             )
         with gr.Column(scale=1):
-            # lora_checkbox = gr.Checkbox(
-            #     label="Load LoRA",
-            #     value=False,
-            #     visible=False
-            # )
+            lora_checkbox = gr.Checkbox(
+                label="Load Deep Processor",
+                value=False,
+                visible=False
+            )
             lora_model_box = gr.Textbox(
                 label="LoRA Model",
                 value="black-forest-labs/FLUX.1-Canny-dev-lora",
@@ -728,7 +721,7 @@ with gr.Blocks(css=demo_css) as demo:
                 gr.update(visible=False),
                 gr.update(visible=True),
                 gr.update(visible=True),
-                gr.update(visible=False),
+                gr.update(visible=True),
                 gr.update(visible=False),
             )
         elif selected_mode == "Image to Image (IP Adapter)":
@@ -778,6 +771,7 @@ with gr.Blocks(css=demo_css) as demo:
             ip_adapter_model_box_global,
             ip_adapter_weight_name_box_global,
             status_msg_box,
+            lora_checkbox,
             lora_model_box,
             ip_adapter_scale_slider,
         ],
@@ -801,6 +795,7 @@ with gr.Blocks(css=demo_css) as demo:
         mode,
         model_state,
         preproc_state,
+        lora_checkbox,
         lora_model_box,
         ip_adapter_model_box_global,
         ip_adapter_scale_slider,
@@ -824,7 +819,7 @@ with gr.Blocks(css=demo_css) as demo:
                 mode,
                 model_state,
                 preproc_state,
-                True,
+                lora_checkbox,
                 lora_model_box,
                 ip_adapter_scale_slider,
                 ip_adapter_model_box_global,
@@ -873,6 +868,7 @@ with gr.Blocks(css=demo_css) as demo:
             mode,
             model_state,
             preproc_state,
+            lora_checkbox,
             lora_model_box,
             ip_adapter_model_box_global,
             ip_adapter_scale_slider,
