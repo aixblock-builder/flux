@@ -8,7 +8,7 @@ from controlnet_aux import CannyDetector
 from diffusers.utils import load_image
 from PIL import Image
 from image_gen_aux import DepthPreprocessor
-
+from torchvision import transforms
 # --------------------------------------------------------------
 
 
@@ -175,31 +175,9 @@ def load_model(
             gr.update(visible=False),
         )
     elif mode == "Image to Image (Multi)":
-        controlnet = FluxControlNetModel.from_pretrained(
-            "InstantX/FLUX.1-dev-Controlnet-Canny-alpha", 
-            torch_dtype=torch.bfloat16,
-        )
-        pipe = FluxControlNetImg2ImgPipeline.from_pretrained(
-            "black-forest-labs/FLUX.1-dev",
-            controlnet=controlnet,
-            torch_dtype=torch.bfloat16,
-        )
-        
-        # Move all components to the same device
-        if torch.cuda.is_available():
-            pipe = pipe.to("cuda")
-        else:
-            # If CUDA not available, use CPU with consistent dtype
-            pipe = pipe.to("cpu")
-        
-        # processor = DepthPreprocessor.from_pretrained(
-        #     "LiheYoung/depth-anything-large-hf"
-        # )
-
-        if load_lora:
-            pipe.load_lora_weights(
-                lora_model_name
-            )
+        from uno.comfy_nodes import UNOModelLoader
+        loader = UNOModelLoader()
+        pipe, = loader.load_model()
 
         return (
             pipe,
@@ -428,8 +406,8 @@ def control_multi_gr(
     strength,
     seed,
 ):
-    if model_state is None or not image_upload or len(image_upload) < 2:
-        return None 
+    if model_state is None or not image_upload or len(image_upload) != 4:
+        return None
 
     # Load and convert uploaded files to PIL Images
     images = []
@@ -442,31 +420,39 @@ def control_multi_gr(
             img = img.convert("RGB")
         images.append(img)
 
-    generator = torch.Generator().manual_seed(seed) if seed is not None else None
+    # Resize reference images to 320 or 512 based on logic
+    ref_size = 320  # hoặc 512 nếu chỉ có 1 ảnh
+    preprocess = transforms.Compose([
+        transforms.Resize((ref_size, ref_size)),
+        transforms.ToTensor(),  # [C, H, W], values in [0, 1]
+        transforms.Lambda(lambda x: x.permute(1, 2, 0)),  # [H, W, C]
+    ])
+    ref_tensors = [preprocess(img) for img in images]  # Tensor list [H, W, C]
 
-    # Use first image as initial image
-    current_image = images[0]
+    # Stack into batch
+    reference_tensor_batch = torch.stack(ref_tensors)  # [4, H, W, C]
+    from uno.comfy_nodes import UNOGenerate
 
-    # Chain through remaining images as control images
-    for ctrl_img in images[1:]:
-        control_image = ctrl_img
+    # Tạo đối tượng sinh ảnh
+    generator = UNOGenerate()
 
-        if preproc_state is not None:
-            control_image = preproc_state(control_image)[0].convert("RGB")
+    # Gọi model sinh ảnh
+    output_image = generator.generate(
+        uno_model=model_state,
+        prompt=prompt,
+        width=width,
+        height=height,
+        guidance=guidance_scale,
+        num_steps=num_inference_steps,
+        seed=seed,
+        pe="d",  # hoặc "h", "w", "o" tuỳ bạn
+        reference_image_1=reference_tensor_batch[0],
+        reference_image_2=reference_tensor_batch[1],
+        reference_image_3=reference_tensor_batch[2],
+        reference_image_4=reference_tensor_batch[3],
+    )
 
-        current_image = model_state(
-            prompt=prompt,
-            image=current_image,
-            control_image=control_image,
-            height=height,
-            width=width,
-            num_inference_steps=num_inference_steps,
-            guidance_scale=guidance_scale,
-            strength=strength,
-            generator=generator,
-        ).images[0]
-
-    return current_image
+    return output_image
 
 demo_css = """
 .blinking {
