@@ -4,17 +4,14 @@ import numpy as np
 from PIL import Image
 import sys
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from uno.flux.modules.conditioner import HFEmbedder
 from uno.flux.pipeline import UNOPipeline, preprocess_ref
 from uno.flux.util import configs, print_load_warning, set_lora
 from safetensors.torch import load_file as load_sft
-
 from huggingface_hub import snapshot_download
 
 try:
-    # Thử load cache đã có (không tải lại)
     cache_dir = snapshot_download(
         repo_id="black-forest-labs/FLUX.1-dev",
         local_files_only=True
@@ -27,11 +24,10 @@ except Exception as e:
 
 t5_cache_dir = os.path.join(cache_dir, "text_encoder_2")
 ae_cache_dir = os.path.join(cache_dir, "ae.safetensors")
-flux_cache_path = os.path.join(cache_dir, "flflux1-dev.safetensors")
+flux_cache_path = os.path.join(cache_dir, "flux1-dev.safetensors")
 vae_cache_path = os.path.join(cache_dir, "vae/diffusion_pytorch_model.safetensors")
 
 try:
-    # Thử load cache đã có (không tải lại)
     lora_dir = snapshot_download("bytedance-research/UNO", local_files_only=True)
     print(f"Loaded cached repo at {lora_dir}")
 except Exception as e:
@@ -39,13 +35,17 @@ except Exception as e:
     lora_dir = snapshot_download("bytedance-research/UNO", local_files_only=False)
     print(f"Downloaded repo at {lora_dir}")
 
-lora_paths = os.path.join(cache_dir, "dit_lora.safetensors")
+lora_paths = os.path.join(lora_dir, "dit_lora.safetensors")
 
-# 添加自定义加载模型的函数
+try:
+    clip_path = snapshot_download("openai/clip-vit-large-patch14", local_files_only=True)
+    print(f"Loaded cached repo at {clip_path}")
+except Exception as e:
+    print("Cache not found, downloading from Hugging Face...")
+    clip_path = snapshot_download("openai/clip-vit-large-patch14", local_files_only=False)
+    print(f"Downloaded repo at {clip_path}")
+
 def custom_load_flux_model(model_path, device, use_fp8=False, lora_rank=512, lora_path=None):
-    """
-    从指定路径加载 Flux 模型
-    """
     from uno.flux.model import Flux
     from uno.flux.util import load_model
     
@@ -54,16 +54,13 @@ def custom_load_flux_model(model_path, device, use_fp8=False, lora_rank=512, lor
     else:
         params = configs["flux-dev"].params
     
-    # 初始化模型
     with torch.device("meta" if model_path is not None else device):
         model = Flux(params)
     
-    # 如果有lora，设置 LoRA 层
     if os.path.exists(lora_path):
         print(f"Using only_lora mode with rank: {lora_rank}")
         model = set_lora(model, lora_rank, device="meta" if model_path is not None else device)
     
-    # 加载模型权重
     if model_path is not None:
         print(f"Loading Flux model from {model_path}")
         print("Loading lora")
@@ -99,20 +96,14 @@ def custom_load_flux_model(model_path, device, use_fp8=False, lora_rank=512, lor
     return model
 
 def custom_load_ae(ae_path, device):
-    """
-    从指定路径加载自编码器
-    """
     from uno.flux.modules.autoencoder import AutoEncoder
     from uno.flux.util import load_model
     
-    # 获取对应模型类型的自编码器参数
     ae_params = configs["flux-dev"].ae_params
     
-    # 初始化自编码器
     with torch.device("meta" if ae_path is not None else device):
         ae = AutoEncoder(ae_params)
     
-    # 加载自编码器权重
     if ae_path is not None:
         print(f"Loading AutoEncoder from {ae_path}")
         if ae_path.endswith('safetensors'):
@@ -125,32 +116,16 @@ def custom_load_ae(ae_path, device):
         if len(unexpected) > 0:
             print(f"Unexpected keys: {len(unexpected)}")
         
-        # 转移到目标设备
         ae = ae.to(str(device))
     return ae
 
 def custom_load_t5(device: str | torch.device = "cuda", max_length: int = 512) -> HFEmbedder:
-    # max length 64, 128, 256 and 512 should work (if your sequence is short enough)
-    version = "xlabs-ai/xflux_text_encoders"
-    
-    return HFEmbedder(version, max_length=max_length, torch_dtype=torch.bfloat16, cache_dir=t5_cache_dir).to(device)
+    return HFEmbedder(t5_cache_dir, max_length=max_length, torch_dtype=torch.bfloat16, cache_dir=t5_cache_dir).to(device)
 
 def custom_load_clip(device: str | torch.device = "cuda") -> HFEmbedder:
-    version = "openai/clip-vit-large-patch14"
-    try:
-        # Thử load cache đã có (không tải lại)
-        clip_path = snapshot_download("openai/clip-vit-large-patch14", local_files_only=True)
-        print(f"Loaded cached repo at {clip_path}")
-    except Exception as e:
-        print("Cache not found, downloading from Hugging Face...")
-        clip_path = snapshot_download("openai/clip-vit-large-patch14", local_files_only=False)
-        print(f"Downloaded repo at {clip_path}")
-    
-    return HFEmbedder(version, max_length=77, torch_dtype=torch.bfloat16, cache_dir=clip_path).to(device)
+    return HFEmbedder(clip_path, max_length=77, torch_dtype=torch.bfloat16, cache_dir=clip_path).to(device)
 
-
-
-class UNOModelLoader:
+class FluxModelLoader:
     def __init__(self):
         self.output_dir = os.getcwd()
         self.type = "UNO_MODEL"
@@ -158,11 +133,8 @@ class UNOModelLoader:
 
     @classmethod
     def INPUT_TYPES(cls):
-        # 获取 unet 模型列表和 vae 模型列表
         model_paths = flux_cache_path
         vae_paths = vae_cache_path
-        
-        # 增加 LoRA 模型选项
         
         return {
             "required": {
@@ -188,7 +160,6 @@ class UNOModelLoader:
             print("Using CPU")
         
         try:
-            # 获取LoRA模型路径（如果有）
             lora_model_path = None
             if lora_model is not None and lora_model != "None":
                 lora_model_path = lora_dir
@@ -199,7 +170,6 @@ class UNOModelLoader:
             if lora_model_path:
                 print(f"Loading LoRA model from: {lora_model_path}")
             
-            # 创建自定义 UNO Pipeline
             class CustomUNOPipeline(UNOPipeline):
                 def __init__(self, use_fp8, device, flux_path, ae_path, offload=False, 
                             lora_rank=512, lora_path=None):
@@ -207,21 +177,19 @@ class UNOModelLoader:
                     self.offload = offload
                     self.model_type = "flux-dev-fp8" if use_fp8 else "flux-dev"
                     self.use_fp8 = use_fp8
-                    # 加载 CLIP 和 T5 编码器
-                    self.clip = custom_load_clip(device="cpu" if offload else self.device)
-                    self.t5 = custom_load_t5(device="cpu" if offload else self.device, max_length=512)
+
+                    self.clip = custom_load_clip(device=self.device)
+                    self.t5 = custom_load_t5(device=self.device, max_length=512)
                     
-                    # 加载自定义模型
-                    self.ae = custom_load_ae(ae_path, device="cpu" if offload else self.device)
+                    self.ae = custom_load_ae(ae_cache_dir, device=self.device)
                     self.model = custom_load_flux_model(
-                        flux_path, 
-                        device="cpu" if offload else self.device, 
+                        flux_cache_path, 
+                        device=self.device, 
                         use_fp8=use_fp8,
                         lora_rank=lora_rank,
-                        lora_path=lora_path
+                        lora_path=lora_paths
                     )
                     
-            # 创建自定义 pipeline
             model = CustomUNOPipeline(
                 use_fp8=use_fp8,
                 device=device,
@@ -229,7 +197,7 @@ class UNOModelLoader:
                 ae_path=ae_model_path,
                 offload=offload,
                 lora_rank=lora_rank,
-                lora_path=lora_model_path,
+                lora_path=lora_paths,
             )
             
             self.loaded_model = model
@@ -241,8 +209,7 @@ class UNOModelLoader:
             traceback.print_exc()
             raise e
 
-
-class UNOGenerate:
+class FluxGenerate:
     def __init__(self):
         self.output_dir = os.getcwd()
         os.makedirs(self.output_dir, exist_ok=True)

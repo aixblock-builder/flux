@@ -9,6 +9,8 @@ from diffusers.utils import load_image
 from PIL import Image
 from image_gen_aux import DepthPreprocessor
 from torchvision import transforms
+import torchvision.transforms as T
+
 # --------------------------------------------------------------
 
 
@@ -175,8 +177,37 @@ def load_model(
             gr.update(visible=False),
         )
     elif mode == "Image to Image (Multi)":
-        from uno.comfy_nodes import UNOModelLoader
-        loader = UNOModelLoader()
+        from huggingface_hub import snapshot_download
+        import os
+        try:
+            cache_dir = snapshot_download(
+                repo_id="black-forest-labs/FLUX.1-dev",
+                local_files_only=True
+            )
+            print(f"Loaded cached repo at {cache_dir}")
+        except Exception as e:
+            print("Cache not found, downloading from Hugging Face...")
+            cache_dir = snapshot_download("black-forest-labs/FLUX.1-dev", local_files_only=False)
+            print(f"Downloaded repo at {cache_dir}")
+
+        try:
+            lora_dir = snapshot_download("bytedance-research/UNO", local_files_only=True)
+            print(f"Loaded cached repo at {lora_dir}")
+        except Exception as e:
+            print("Cache not found, downloading from Hugging Face...")
+            lora_dir = snapshot_download("bytedance-research/UNO", local_files_only=False)
+            print(f"Downloaded repo at {lora_dir}")
+
+        try:
+            clip_path = snapshot_download("openai/clip-vit-large-patch14", local_files_only=True)
+            print(f"Loaded cached repo at {clip_path}")
+        except Exception as e:
+            print("Cache not found, downloading from Hugging Face...")
+            clip_path = snapshot_download("openai/clip-vit-large-patch14", local_files_only=False)
+            print(f"Downloaded repo at {clip_path}")
+
+        from uno.comfy_nodes import FluxModelLoader
+        loader = FluxModelLoader()
         pipe, = loader.load_model()
 
         return (
@@ -408,7 +439,6 @@ def control_multi_gr(
 ):
     if model_state is None or not image_upload or len(image_upload) != 4:
         return None
-
     # Load and convert uploaded files to PIL Images
     images = []
     for f in image_upload:
@@ -420,24 +450,21 @@ def control_multi_gr(
             img = img.convert("RGB")
         images.append(img)
 
-    # Resize reference images to 320 or 512 based on logic
-    ref_size = 320  # hoặc 512 nếu chỉ có 1 ảnh
-    preprocess = transforms.Compose([
-        transforms.Resize((ref_size, ref_size)),
-        transforms.ToTensor(),  # [C, H, W], values in [0, 1]
-        transforms.Lambda(lambda x: x.permute(1, 2, 0)),  # [H, W, C]
-    ])
-    ref_tensors = [preprocess(img) for img in images]  # Tensor list [H, W, C]
+    def pil_to_tensor(image):
+        transform = T.Compose([
+            T.ToTensor(),  # [0, 1]
+            T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+        ])
+        tensor = transform(image)  # Shape: [3, H, W]
+        tensor = tensor.permute(1, 2, 0)  # Chuyển sang [H, W, C] để tương thích
+        return tensor
 
-    # Stack into batch
-    reference_tensor_batch = torch.stack(ref_tensors)  # [4, H, W, C]
-    from uno.comfy_nodes import UNOGenerate
+    ref_tensors = [pil_to_tensor(img) for img in images]
 
-    # Tạo đối tượng sinh ảnh
-    generator = UNOGenerate()
-
-    # Gọi model sinh ảnh
-    output_image = generator.generate(
+    from uno.comfy_nodes import FluxGenerate
+    flux_gen = FluxGenerate()
+    
+    output_image = flux_gen.generate(
         uno_model=model_state,
         prompt=prompt,
         width=width,
@@ -445,13 +472,12 @@ def control_multi_gr(
         guidance=guidance_scale,
         num_steps=num_inference_steps,
         seed=seed,
-        pe="d",  # hoặc "h", "w", "o" tuỳ bạn
-        reference_image_1=reference_tensor_batch[0],
-        reference_image_2=reference_tensor_batch[1],
-        reference_image_3=reference_tensor_batch[2],
-        reference_image_4=reference_tensor_batch[3],
+        pe="d",
+        reference_image_1=ref_tensors[0] if len(ref_tensors) > 0 else None,
+        reference_image_2=ref_tensors[1] if len(ref_tensors) > 1 else None,
+        reference_image_3=ref_tensors[2] if len(ref_tensors) > 2 else None,
+        reference_image_4=ref_tensors[3] if len(ref_tensors) > 3 else None,
     )
-
     return output_image
 
 demo_css = """
