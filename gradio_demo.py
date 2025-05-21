@@ -191,6 +191,15 @@ def load_model(
             print(f"Downloaded repo at {cache_dir}")
 
         try:
+            import shutil
+            src = "spiece.model" 
+            t5_cache_dir = os.path.join(cache_dir, "text_encoder_2")
+            shutil.copy(src, t5_cache_dir)
+            print("Copied spiece.model thành công!")
+        except Exception as e:
+            print("Error copying spiece.model:", e)
+
+        try:
             lora_dir = snapshot_download("bytedance-research/UNO", local_files_only=True)
             print(f"Loaded cached repo at {lora_dir}")
         except Exception as e:
