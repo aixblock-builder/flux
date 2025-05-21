@@ -8,9 +8,8 @@ from controlnet_aux import CannyDetector
 from diffusers.utils import load_image
 from PIL import Image
 from image_gen_aux import DepthPreprocessor
-from torchvision import transforms
-import torchvision.transforms as T
-
+from uno.flux.pipeline import UNOPipeline
+import spaces
 # --------------------------------------------------------------
 
 
@@ -177,56 +176,13 @@ def load_model(
             gr.update(visible=False),
         )
     elif mode == "Image to Image (Multi)":
-        from huggingface_hub import snapshot_download
-        import os
-        try:
-            cache_dir = snapshot_download(
-                repo_id="black-forest-labs/FLUX.1-dev",
-                local_files_only=True
-            )
-            t5_cache_dir = os.path.join(cache_dir, "text_encoder_2")
-            tokenizer_path = os.path.join(cache_dir, "tokenizer_2")
-            print(f"Loaded cached repo at {cache_dir}")
-        except Exception as e:
-            print("Cache not found, downloading from Hugging Face...")
-            cache_dir = snapshot_download("black-forest-labs/FLUX.1-dev", local_files_only=False)
-            print(f"Downloaded repo at {cache_dir}")
-
-        try:
-            import shutil
-            for filename in os.listdir(tokenizer_path):
-                src_file = os.path.join(tokenizer_path, filename)
-                dest_file = os.path.join(t5_cache_dir, filename)
-                if os.path.isfile(src_file):
-                    shutil.copy2(src_file, dest_file)
-                    print(f"Copied {filename} to {dest_file}")
-
-            print("✅ Đã copy toàn bộ tokenizer vào text_encoder_2.")
-        except Exception as e:
-            print("Error copying spiece.model:", e)
-
-        try:
-            lora_dir = snapshot_download("bytedance-research/UNO", local_files_only=True)
-            print(f"Loaded cached repo at {lora_dir}")
-        except Exception as e:
-            print("Cache not found, downloading from Hugging Face...")
-            lora_dir = snapshot_download("bytedance-research/UNO", local_files_only=False)
-            print(f"Downloaded repo at {lora_dir}")
-
-        try:
-            clip_path = snapshot_download("openai/clip-vit-large-patch14", local_files_only=True)
-            print(f"Loaded cached repo at {clip_path}")
-        except Exception as e:
-            print("Cache not found, downloading from Hugging Face...")
-            clip_path = snapshot_download("openai/clip-vit-large-patch14", local_files_only=False)
-            print(f"Downloaded repo at {clip_path}")
-
-        from uno.comfy_nodes import FluxModelLoader
-        loader = FluxModelLoader()
-        pipe, = loader.load_model()
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        offload = False
+        pipeline = UNOPipeline("flux-dev", device, offload, only_lora=True, lora_rank=512)
+        pipeline.gradio_generate = spaces.GPU(duratioin=120)(pipeline.gradio_generate)
 
         return (
-            pipe,
+            pipeline,
             None,
             gr.update(visible=False),
             gr.update(visible=False),
@@ -441,57 +397,31 @@ def control_only_gr(
 
 def control_multi_gr(
     model_state,
-    preproc_state,
-    image_upload,  # list of uploaded images
+    image_prompt1,
+    image_prompt2,
+    image_prompt3,
+    image_prompt4,
     prompt,
     guidance_scale,
     height,
     width,
     num_inference_steps,
-    max_sequence_length,
-    strength,
     seed,
 ):
-    if model_state is None or not image_upload or len(image_upload) != 4:
-        return None
-    # Load and convert uploaded files to PIL Images
-    images = []
-    for f in image_upload:
-        if isinstance(f, str):
-            img = Image.open(f)
-        else:
-            img = Image.open(f.name)
-        if img.mode != "RGB":
-            img = img.convert("RGB")
-        images.append(img)
+    if model_state is None:
+        return None 
 
-    def pil_to_tensor(image):
-        transform = T.Compose([
-            T.ToTensor(),  # [0, 1]
-            T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
-        ])
-        tensor = transform(image)  # Shape: [3, H, W]
-        tensor = tensor.permute(1, 2, 0)  # Chuyển sang [H, W, C] để tương thích
-        return tensor
-
-    ref_tensors = [pil_to_tensor(img) for img in images]
-
-    from uno.comfy_nodes import FluxGenerate
-    flux_gen = FluxGenerate()
-    
-    output_image = flux_gen.generate(
-        uno_model=model_state,
-        prompt=prompt,
-        width=width,
-        height=height,
-        guidance=guidance_scale,
-        num_steps=num_inference_steps,
-        seed=seed,
-        pe="d",
-        reference_image_1=ref_tensors[0] if len(ref_tensors) > 0 else None,
-        reference_image_2=ref_tensors[1] if len(ref_tensors) > 1 else None,
-        reference_image_3=ref_tensors[2] if len(ref_tensors) > 2 else None,
-        reference_image_4=ref_tensors[3] if len(ref_tensors) > 3 else None,
+    output_image, _ = model_state.gradio_generate(
+        prompt,
+        width,
+        height,
+        guidance_scale,
+        num_inference_steps,
+        seed,
+        image_prompt1,
+        image_prompt2,
+        image_prompt3,
+        image_prompt4,
     )
     return output_image
 
@@ -788,11 +718,10 @@ with gr.Blocks(css=demo_css) as demo:
 
     with gr.Column(visible=False) as control_multi_col:
         with gr.Row():
-            image_upload = gr.File(
-                label="Upload Images",
-                file_types=["image"],
-                file_count="multiple",  # Cho phép nhiều ảnh
-            )
+            image_prompt1 = gr.Image(label="Ref Img1", visible=True, interactive=True, type="pil")
+            image_prompt2 = gr.Image(label="Ref Img2", visible=True, interactive=True, type="pil")
+            image_prompt3 = gr.Image(label="Ref Img3", visible=True, interactive=True, type="pil")
+            image_prompt4 = gr.Image(label="Ref img4", visible=True, interactive=True, type="pil")
             
         prompt5 = gr.Textbox(
             label="Prompt",
@@ -828,22 +757,8 @@ with gr.Blocks(css=demo_css) as demo:
                 step=1,
                 label="Num Inference Steps",
             )
-            max_sequence_length5 = gr.Slider(
-                32,
-                512,
-                value=256,
-                step=8,
-                label="Max Sequence Length",
-            )
-            strength5 = gr.Slider(
-                0.0,
-                1.0,
-                value=0.5,
-                step=0.01,
-                label="Strength",
-            )
             seed5 = gr.Number(
-                value=42,
+                value=1000,
                 label="Seed (int)",
             )
         gen_btn5 = gr.Button("Generate")
@@ -1154,15 +1069,15 @@ with gr.Blocks(css=demo_css) as demo:
         control_multi_gr,
         inputs=[
             model_state,
-            preproc_state,
-            image_upload,
+            image_prompt1,
+            image_prompt2,
+            image_prompt3,
+            image_prompt4,
             prompt5,
             guidance_scale5,
             height5,
             width5,
             num_inference_steps5,
-            max_sequence_length5,
-            strength5,
             seed5,
         ],
         outputs=img_out5,
