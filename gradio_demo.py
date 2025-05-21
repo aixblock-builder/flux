@@ -185,6 +185,7 @@ def load_model(
                 local_files_only=True
             )
             t5_cache_dir = os.path.join(cache_dir, "text_encoder_2")
+            tokenizer_path = os.path.join(cache_dir, "tokenizer_2")
             print(f"Loaded cached repo at {cache_dir}")
         except Exception as e:
             print("Cache not found, downloading from Hugging Face...")
@@ -193,9 +194,14 @@ def load_model(
 
         try:
             import shutil
-            src = "spiece.model" 
-            shutil.copy(src, t5_cache_dir)
-            print("Copied spiece.model thành công!")
+            for filename in os.listdir(tokenizer_path):
+                src_file = os.path.join(tokenizer_path, filename)
+                dest_file = os.path.join(t5_cache_dir, filename)
+                if os.path.isfile(src_file):
+                    shutil.copy2(src_file, dest_file)
+                    print(f"Copied {filename} to {dest_file}")
+
+            print("✅ Đã copy toàn bộ tokenizer vào text_encoder_2.")
         except Exception as e:
             print("Error copying spiece.model:", e)
 
