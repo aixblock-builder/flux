@@ -184,6 +184,7 @@ def load_model(
                 repo_id="black-forest-labs/FLUX.1-dev",
                 local_files_only=True
             )
+            t5_cache_dir = os.path.join(cache_dir, "text_encoder_2")
             print(f"Loaded cached repo at {cache_dir}")
         except Exception as e:
             print("Cache not found, downloading from Hugging Face...")
@@ -193,7 +194,6 @@ def load_model(
         try:
             import shutil
             src = "spiece.model" 
-            t5_cache_dir = os.path.join(cache_dir, "text_encoder_2")
             shutil.copy(src, t5_cache_dir)
             print("Copied spiece.model thành công!")
         except Exception as e:

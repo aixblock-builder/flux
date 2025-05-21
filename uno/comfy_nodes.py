@@ -22,10 +22,16 @@ except Exception as e:
     cache_dir = snapshot_download("black-forest-labs/FLUX.1-dev", local_files_only=False)
     print(f"Downloaded repo at {cache_dir}")
 
+print("cache_dir", cache_dir)
 t5_cache_dir = os.path.join(cache_dir, "text_encoder_2")
 ae_cache_dir = os.path.join(cache_dir, "ae.safetensors")
 flux_cache_path = os.path.join(cache_dir, "flux1-dev.safetensors")
 vae_cache_path = os.path.join(cache_dir, "vae/diffusion_pytorch_model.safetensors")
+
+print("t5_cache_dir", t5_cache_dir)
+print("ae_cache_dir", ae_cache_dir)
+print("flux_cache_path", flux_cache_path)
+print("vae_cache_path", vae_cache_path)
 
 try:
     lora_dir = snapshot_download("bytedance-research/UNO", local_files_only=True)
@@ -45,7 +51,7 @@ except Exception as e:
     clip_path = snapshot_download("openai/clip-vit-large-patch14", local_files_only=False)
     print(f"Downloaded repo at {clip_path}")
 
-def custom_load_flux_model(model_path, device, use_fp8=False, lora_rank=512, lora_path=None):
+def custom_load_flux_model(model_path, device, use_fp8=True, lora_rank=512, lora_path=None):
     from uno.flux.model import Flux
     from uno.flux.util import load_model
     
@@ -120,7 +126,7 @@ def custom_load_ae(ae_path, device):
     return ae
 
 def custom_load_t5(device: str | torch.device = "cuda", max_length: int = 512) -> HFEmbedder:
-    return HFEmbedder(t5_cache_dir, max_length=max_length, torch_dtype=torch.bfloat16, cache_dir=t5_cache_dir).to(device)
+    return HFEmbedder(cache_dir, max_length=max_length, torch_dtype=torch.bfloat16, subfolder="text_encoder_2", local_files_only=True).to(device)
 
 def custom_load_clip(device: str | torch.device = "cuda") -> HFEmbedder:
     return HFEmbedder(clip_path, max_length=77, torch_dtype=torch.bfloat16, cache_dir=clip_path).to(device)
