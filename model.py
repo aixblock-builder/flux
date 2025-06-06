@@ -818,7 +818,7 @@ class MyModel(AIxBlockMLBase):
                     },
                 }
 
-                logger.info(result)
+                # logger.info(result)
                 predictions = []
 
                 predictions.append({
