@@ -805,7 +805,7 @@ class MyModel(AIxBlockMLBase):
                     negative_prompt=negative_prompt,
                 )
                 buffered = BytesIO()
-                image.save(buffered, format=format)
+                image.save(buffered, format=format, quality=80, optimize=True)
                 image.save(const.PROJ_DIR.joinpath(f"image.{format}"))
                 img_base64_output = base64.b64encode(buffered.getvalue()).decode("utf-8")
                 generated_url = f"/downloads?path=image.{format}"
@@ -834,7 +834,6 @@ class MyModel(AIxBlockMLBase):
                     }],
                     'model_version': ""
                 })
-                print(predictions)
 
                 return {"message": "predict completed successfully", "result": predictions}
 
