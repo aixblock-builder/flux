@@ -626,6 +626,7 @@ class MyModel(AIxBlockMLBase):
             return {"message": "tensorboardx started successfully"}
         # region Predict
         elif command.lower() == "predict":
+            pipe_predict = None
 
             def unload_and_load_model(
                 task: str,
@@ -809,14 +810,14 @@ class MyModel(AIxBlockMLBase):
                 img_base64_output = base64.b64encode(buffered.getvalue()).decode("utf-8")
                 generated_url = f"/downloads?path=image.{format}"
 
-                result = {
-                    "model_version": model_id,
-                    "result": {
-                        "format": format,
-                        "image": img_base64_output,
-                        "image_url": generated_url,
-                    },
-                }
+                # result = {
+                #     "model_version": model_id,
+                #     "result": {
+                #         "format": format,
+                #         "image": img_base64_output,
+                #         "image_url": generated_url,
+                #     },
+                # }
 
                 # logger.info(result)
                 predictions = []
@@ -833,6 +834,7 @@ class MyModel(AIxBlockMLBase):
                     }],
                     'model_version': ""
                 })
+                print(predictions)
 
                 return {"message": "predict completed successfully", "result": predictions}
 
