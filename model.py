@@ -755,7 +755,7 @@ class MyModel(AIxBlockMLBase):
                 chkpt_name = kwargs.get("checkpoint", None)
                 width = kwargs.get("width", 1024)
                 height = kwargs.get("height", 1024)
-                num_inference_steps = kwargs.get("num_inference_steps", 30)
+                num_inference_steps = kwargs.get("num_inference_steps", 20)
                 guidance_scale = kwargs.get("guidance_scale", 10)
                 format = kwargs.get("format", "JPEG")
                 task = kwargs.get("task", "text to image")
